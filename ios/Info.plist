@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>vi_VN</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>DevFlow</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<true/>
+		<key>UISceneConfigurations</key>
+		<dict/>
+	</dict>
+	<key>UIApplicationSupportsIndirectInputEvents</key>
+	<true/>
+	<key>UICollectionViewFlowLayoutAutomaticEstimatedItemSize</key>
+	<string>UICollectionViewFlowLayoutAutomaticEstimatedItemSize</string>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<!-- Permissions -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Cần quyền truy cập mic để ghi âm ghi chú (voice-to-text)</string>
+	<key>NSUserNotificationUsageDescription</key>
+	<string>Cần quyền để nhận thông báo nhắc nhở về khối lịch và kiểm tra đốt cháy</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>Cần quyền để tự động theo dõi bài tập và giấc ngủ (HealthKit)</string>
+	<!-- Minimum iOS Version -->
+	<key>MinimumOSVersion</key>
+	<string>17.0</string>
+	<!-- App Appearance -->
+	<key>UIUserInterfaceStyle</key>
+	<string>Dark</string>
+	<!-- iCloud -->
+	<key>NSUbiquitousContainers</key>
+	<dict>
+		<key>iCloud.com.devflow.app</key>
+		<dict>
+			<key>NSUbiquitousContainerDocumentScope</key>
+			<true/>
+			<key>NSUbiquitousContainerIsDocumentScopePublic</key>
+			<false/>
+			<key>NSUbiquitousContainerSupportsFolderLevels</key>
+			<false/>
+		</dict>
+	</dict>
+	<!-- Privacy -->
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+	<!-- App Configuration -->
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>DevFlow Plan</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>devflow</string>
+			</array>
+			<key>CFBundleTypeIconFiles</key>
+			<array/>
+			<key>LSIsAppleDefaultForType</key>
+			<true/>
+			<key>LSHandlerRank</key>
+			<string>Owner</string>
+		</dict>
+	</array>
+	<!-- URL Schemes (for Siri Shortcuts) -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.devflow.app</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>devflow</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>
