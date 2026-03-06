@@ -1,0 +1,82 @@
+{
+  "ad_hominem": [
+    "Bạn chỉ ủng hộ điều đó vì bạn không hiểu gì!",
+    "Bạn nói vậy vì bạn chưa bao giờ thử!",
+    "Người như bạn không thể hiểu được vấn đề này!",
+    "Rõ ràng bạn bị thiên vị vì lý do cá nhân!",
+    "Bạn không đủ thông minh để có ý kiến này!",
+    "Mọi người biết bạn không phải là chuyên gia!"
+  ],
+  "strawman": [
+    "Vậy ý bạn là bạn hoàn toàn ghét điều đối lập?",
+    "Bạn đang nói rằng sẽ bỏ qua tất cả những điều khác?",
+    "Điều đó có nghĩa là bạn không quan tâm đến sức khỏe?",
+    "Vậy bạn cho rằng chúng ta nên bỏ qua mọi thứ?",
+    "Điều đó có nghĩa là bạn ghét tất cả mọi người khác?",
+    "Bạn đang nói rằng tất cả đều sai là tôi?"
+  ],
+  "appeal_emotion": [
+    "Điều này làm tôi cảm thấy buồn vì những ký ức tuổi thơ!",
+    "Tất cả mọi người tôi yêu sẽ đau lòng nếu nghe bạn nói!",
+    "Đây là nỗi đau của thế hệ chúng ta!",
+    "Cảm xúc của chúng ta quan trọng hơn sự thật!",
+    "Tôi không thể chấp nhận điều này vì nó quá đau!",
+    "Mọi người sẽ khóc nếu bạn đúng!"
+  ],
+  "false_dichotomy": [
+    "Hoặc bạn sống theo cách này, hoặc bạn không tôn trọng bản thân!",
+    "Hoặc bạn đồng ý với tôi, hoặc bạn là kẻ thù!",
+    "Không có cách nào giữa đen và trắng!",
+    "Bạn phải chọn: cái này hoặc cái kia!",
+    "Hoặc tôi đúng, hoặc toàn thế giới sai!",
+    "Chỉ có hai lựa chọn: theo tôi hoặc bạn là ngu!"
+  ],
+  "slippery_slope": [
+    "Nếu chúng ta cho phép điều này, ngày mai sẽ là tình huống tồi tệ!",
+    "Đây là con đường dốc trơn tới tận cùng!",
+    "Một bước nhỏ hôm nay sẽ dẫn đến thảm họa ngày mai!",
+    "Nếu bạn cho phép điều này, không gì có thể dừng lại!",
+    "Điều này sẽ dẫn đến hỗn loạn toàn bộ xã hội!",
+    "Nếu chúng ta chấp nhận, cuộc sống sẽ hoàn toàn thay đổi!"
+  ],
+  "begging_question": [
+    "Rõ ràng là đúng như tôi nói!",
+    "Ai có thể phủ nhận được sự hiển nhiên này?",
+    "Mọi người đều biết điều tôi nói là đúng!",
+    "Đó là hiển nhiên không cần chứng minh!",
+    "Ai mà không biết sự thật này?",
+    "Chỉ những kẻ ngu mới không nhìn thấy!"
+  ],
+  "appeal_authority": [
+    "Chuyên gia nổi tiếng đã nói vậy nên nó phải đúng!",
+    "Nhà vô địch thế giới tin tưởng như vậy!",
+    "Người giàu nhất thế giới sẽ đồng ý với tôi!",
+    "Tất cả những người thông minh đều nghĩ điều này!",
+    "Các giáo sư hàng đầu đã chứng minh điều đó!",
+    "Cảnh sát nói vậy nên nó phải đúng!"
+  ],
+  "red_herring": [
+    "Nhưng bạn có biết rằng vấn đề thực sự là cái khác?",
+    "Tất cả những điều bạn nói không liên quan đến vấn đề chính!",
+    "Bạn đang cố che giấu sự thật rằng...",
+    "Chúng ta nên tập trung vào vấn đề khác quan trọng hơn!",
+    "Bạn bỏ quên phần quan trọng nhất của câu chuyện!",
+    "Mọi người đều biết rằng thế là không liên quan!"
+  ],
+  "hasty_generalization": [
+    "Tôi gặp một người như vậy nên tất cả họ đều giống!",
+    "Cái gì xảy ra lần này sẽ lặp lại mãi mãi!",
+    "Một trường hợp chứng minh mọi trường hợp!",
+    "Tôi thấy hai lần giống nhau nên luôn luôn giống!",
+    "Điều này luôn xảy ra như vậy!",
+    "Mọi lần đều giống nhau!"
+  ],
+  "false_cause": [
+    "Vì A xảy ra trước B nên A gây ra B!",
+    "Hai sự việc này cùng xảy ra nên chúng liên quan!",
+    "Người hút thuốc sống lâu hơn nên thuốc tốt!",
+    "Trời mưa rồi tôi bị ốm nên mưa gây ốm!",
+    "Bạn mặc áo đỏ người kia bị tai nạn nên áo đỏ gây tai nạn!",
+    "Điều này xảy ra sau điều kia nên nó gây ra!"
+  ]
+}
