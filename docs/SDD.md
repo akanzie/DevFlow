@@ -1,16 +1,14 @@
-# Tài liệu Thiết kế Hệ thống (System Design Document - SDD)  
+# Tài liệu Thiết kế Hệ thống (System Design Document - SDD) - Python  
 **Tên phần mềm:** DailyClip – Công cụ tự động hóa ghi chú và lưu trữ dữ liệu cá nhân  
-**Phiên bản:** 1.0 (Sơ bộ – High-Level Design)  
-**Ngày soạn thảo:** 06/03/2026  
-**Tác giả:** Kiệt (với hỗ trợ tinh chỉnh)  
+**Phiên bản:** 1.0 (Python)  
 
 ## 1. Giới thiệu
 
 ### 1.1 Mục đích
-Tài liệu này mô tả thiết kế cấp cao (High-Level Design) và một số thiết kế chi tiết (Low-Level Design) cần thiết để triển khai phần mềm **DailyClip** theo đúng SRS. Nó định nghĩa kiến trúc hệ thống, các thành phần chính, giao tiếp giữa chúng, luồng dữ liệu, và các quyết định kỹ thuật quan trọng.
+Tài liệu này mô tả thiết kế cấp cao (High-Level Design) và một số thiết kế chi tiết (Low-Level Design) cần thiết để triển khai phần mềm **DailyClip** (Python version) theo đúng SRS. Nó định nghĩa kiến trúc hệ thống, các thành phần chính, giao tiếp giữa chúng, luồng dữ liệu, và các quyết định kỹ thuật quan trọng.
 
 ### 1.2 Phạm vi
-- Thiết kế cho phiên bản Windows native đầu tiên (offline-first, local storage).  
+- Thiết kế cho phiên bản Windows standalone đầu tiên (offline-first, local storage).  
 - Không bao gồm: đồng bộ đám mây, multi-platform, AI tagging (các tính năng mở rộng sau).
 
 ### 1.3 Tài liệu tham chiếu
@@ -20,53 +18,58 @@ Tài liệu này mô tả thiết kế cấp cao (High-Level Design) và một s
 ## 2. Tổng quan hệ thống & Mục tiêu thiết kế
 
 ### 2.1 Mô tả hệ thống
-DailyClip là ứng dụng desktop Windows chạy nền, giám sát clipboard, hỗ trợ chụp màn hình nhanh, ghi chú Markdown, index & tìm kiếm local toàn cục dữ liệu theo ngày.
+DailyClip là ứng dụng desktop Windows Python + PyQt6 chạy nền, giám sát clipboard, hỗ trợ chụp màn hình nhanh, ghi chú Markdown, index & tìm kiếm local toàn cục dữ liệu theo ngày.
 
 ### 2.2 Mục tiêu thiết kế chính
-- **Local-first & Lightweight**: Không phụ thuộc server, RAM < 100MB khi idle, disk usage tối ưu.  
+- **Local-first & Lightweight**: Không phụ thuộc server, RAM < 150MB (hơi cao hơn .NET do Python overhead), disk usage tối ưu.  
 - **Performance**: Search < 500ms với hàng chục nghìn file tích lũy.  
 - **Reliability**: Không mất dữ liệu khi clipboard thay đổi nhanh, crash-proof.  
 - **Extensibility**: Dễ thêm tag, sync, encrypt sau này.  
-- **Modern UX**: Giao diện Mica/Acrylic, global hotkey mượt.
+- **Modern UX**: Giao diện PyQt6 modern, global hotkey mượt.
 
 ## 3. Kiến trúc hệ thống (System Architecture)
 
 ### 3.1 Tổng quan kiến trúc
-DailyClip sử dụng kiến trúc **Layered + Event-Driven**:
-- **Presentation Layer**: WinUI 3 windows (Quick Search, Quick Note, Gallery).
+DailyClip sử dụng kiến trúc **Layered + Event-Driven** (Python version):
+- **Presentation Layer**: PyQt6 windows (Quick Search, Quick Note, Gallery).
 - **Application Layer**: Core logic (Clipboard monitor, Hotkey handler, Capture service, Indexer).
 - **Domain Layer**: Entities (ClipItem, Note, Screenshot), Services (StorageService, SearchService).
-- **Infrastructure Layer**: File system access, DuckDB index, ImageSharp, Windows API P/Invoke.
+- **Infrastructure Layer**: File system access, DuckDB index, PIL for images, pyperclip for clipboard.
 
-**Deployment View**: Single .exe + .dlls, chạy nền với System Tray icon.
+**Deployment View**: Single Python package (.exe via PyInstaller) hoặc Python source files, chạy nền với System Tray icon.
 
-### 3.2 Biểu đồ kiến trúc cấp cao (High-Level Architecture Diagram)
-(Mô tả text – bạn có thể vẽ bằng Draw.io / Excalidraw)
+### 3.2 Biểu đồ kiến trúc cấp cao (Context Diagram C4-Level 1)
 
 ```
-[User] 
-   ↓ Global Hotkeys (Alt+Space, Alt+N, Alt+S)
-   ↓ System Tray Icon
-[DailyClip App (WinUI 3 + .NET 9)]
-   ├── Quick Search Window ──► SearchService (DuckDB FTS)
-   ├── Quick Note Window ───► NoteService + Markdown Editor
-   ├── Capture Service ─────► Windows.Graphics.Capture / BitBlt
-   ├── Clipboard Monitor ───► Clipboard.ContentChanged event
-   └── Storage Service ─────► File System ([Root]/[YYYY-MM-DD]/...)
-                              └── Indexer → DuckDB daily_index.db
+┌──────────┐
+│   User   │
+└────┬─────┘
+     │ Ctrl+C, Alt+S, Alt+N, Alt+Space
+     ↓
+┌─────────────────────────────────────────┐
+│   DailyClip Application (Python + PyQt6) │
+│    (Single process, multi-threaded)     │
+└─────────────────────────────────────────┘
+     ↑ Uses          ↓ Stores      ↗ Queries
+┌──────────┐   ┌──────────────┐  ┌─────────┐
+│ Windows  │   │ File System  │  │ DuckDB  │
+│   API    │   │ [Root]/...   │  │  Index  │
+└──────────┘   └──────────────┘  └─────────┘
+
+No internet, no server, no cloud dependency (offline-first).
 ```
 
 ### 3.3 Các thành phần chính (Components)
 
 | Thành phần              | Mô tả                                                                 | Công nghệ chính                          | Trách nhiệm chính (REQ liên quan) |
 |-------------------------|-----------------------------------------------------------------------|------------------------------------------|-----------------------------------|
-| ClipboardMonitor        | Giám sát clipboard thay đổi real-time, deduplicate, extract metadata | Clipboard.ContentChanged + P/Invoke     | REQ-101 → REQ-104                |
-| ScreenCaptureService    | Chụp vùng/toàn màn/active window                                      | Windows.Graphics.Capture API (.NET 8+)  | REQ-105                          |
-| HotkeyManager           | Đăng ký & xử lý global hotkeys                                        | RegisterHotKey (user32.dll) + WndProc   | REQ-201                          |
-| StorageService          | Tạo folder ngày, lưu file theo quy ước, append JSONL                  | System.IO + SixLabors.ImageSharp        | REQ-001 → REQ-003                |
-| NoteEditorService       | Markdown editor với auto-save                                         | Markdig + WinUI RichEdit / TextBox      | REQ-202                          |
-| SearchService           | Index & full-text search                                              | DuckDB.NET (FTS extension)              | REQ-301 → REQ-303                |
-| TrayIcon & Background   | Chạy nền, thông báo, menu context                                     | WinUI 3 NotifyIcon                      | NFR-004                          |
+| ClipboardMonitor        | Giám sát clipboard thay đổi real-time, deduplicate, extract metadata | pyperclip + threading + queues            | REQ-101 → REQ-104                |
+| ScreenCaptureService    | Chụp vùng/toàn màn/active window                                      | pyautogui / mss + PIL                    | REQ-105                          |
+| HotkeyManager           | Đăng ký & xử lý global hotkeys                                        | keyboard / pynput library                | REQ-201                          |
+| StorageService          | Tạo folder ngày, lưu file theo quy ước, append JSONL                  | pathlib + json + Pillow                 | REQ-001 → REQ-003                |
+| NoteEditorService       | Markdown editor với auto-save                                         | markdown2 + PyQt6 QPlainTextEdit          | REQ-202                          |
+| SearchService           | Index & full-text search                                              | DuckDB (duckdb package)                 | REQ-301 → REQ-303                |
+| TrayIcon & Background   | Chạy nền, thông báo, menu context                                     | PyQt6 QSystemTrayIcon                   | NFR-004                          |
 
 ## 4. Thiết kế dữ liệu (Data Design)
 
@@ -91,9 +94,9 @@ DailyClipRoot/                  (có thể config, mặc định %AppData%/Daily
   {
     "timestamp": "2026-03-06T09:30:05+07:00",
     "type": "text|image|html",
-    "content": "...",               // text hoặc path đến image
+    "content": "...",               
     "format": "plain|markdown|code",
-    "source_url": "https://..."     // nếu detect được từ HTML format
+    "source_url": "https://..."     
   }
   ```
 - **DuckDB Table** (cho index):
@@ -102,42 +105,92 @@ DailyClipRoot/                  (có thể config, mặc định %AppData%/Daily
 ## 5. Luồng dữ liệu chính (Key Data Flows)
 
 ### 5.1 Luồng Clipboard → Lưu trữ
-1. Clipboard change event fire.
-2. ClipboardMonitor đọc content (text/image).
-3. Deduplicate check (hash last 10s).
+1. ClipboardMonitor polling/event fire (threading handler).
+2. Đọc clipboard content via pyperclip (text/image).
+3. Deduplicate check (hash last 10s - MemoryCache hoặc simple dict).
 4. Tạo record JSON → append vào clips_[current].jsonl.
-5. Nếu image → lưu PNG + metadata.
+5. Nếu image → lưu PNG via PIL + metadata.
 6. Indexer incremental update DuckDB.
 
 ### 5.2 Luồng Search
 1. User mở Quick Search (Alt+Space).
-2. Gõ query → debounce 300ms.
+2. Gõ query → debounce 300ms (QTimer).
 3. SearchService query DuckDB: `SELECT * FROM clips WHERE full_text MATCH ? ORDER BY timestamp DESC LIMIT 50`.
 4. Hiển thị results (snippet + link mở file/folder).
 
 ## 6. Thiết kế giao diện & Tương tác (UI/UX Design)
 
-- **Quick Search**: Borderless, topmost window, Acrylic background, SearchBox + ListView results.
-- **Quick Note**: Floating window, Markdown editor (syntax highlight), auto-save timer.
-- **Gallery**: GridView với virtualization (load on-demand), click → full preview.
-- **Tray Menu**: Open search/note, Today folder, Settings, Exit.
+- **Quick Search**: PyQt6 QMainWindow (frameless possible), mica-like dark palette, QLineEdit + QListWidget results.
+- **Quick Note**: Floating PyQt6 QMainWindow, QPlainTextEdit, auto-save QTimer (5s).
+- **Gallery**: QGridLayout với QLabel thumbnails, virtualization via QAbstractItemModel.
+- **Tray Menu**: PyQt6 QSystemTrayIcon → QMenu (Open search/note, Today folder, Settings, Exit).
 
-## 7. Quyết định thiết kế & Trade-off
+## 7. Rủi ro & Giải pháp giảm thiểu
 
-| Quyết định                  | Lý do chọn                                                                 | Alternative & tại sao bỏ |
-|-----------------------------|-----------------------------------------------------------------------------|---------------------------|
-| DuckDB thay vì SQLite       | Columnar + FTS native nhanh hơn nhiều cho text search trên file lớn        | SQLite FTS5 (dễ hơn nhưng chậm hơn ~2-5x) |
-| WinUI 3 thay vì WPF         | Modern look (Mica), performance tốt hơn, native Windows 11 feel            | WPF (ổn định hơn nhưng UI cũ) |
-| JSONL cho clips             | Append-only, dễ parse, không cần đọc toàn file                             | Single JSON (phải rewrite), Markdown (khó structured) |
-| Global hotkey via P/Invoke  | Hỗ trợ system-wide, chuẩn Windows                                          | Thư viện third-party (thêm dependency) |
-
-## 8. Rủi ro & Giải pháp giảm thiểu
-
-- Rủi ro: Global hotkey conflict với app khác → Giải pháp: Cho phép tùy chỉnh phím tắt + fallback.
-- Rủi ro: Clipboard monitor miss event → Giải pháp: Poll fallback mỗi 1-2s nếu cần.
+- Rủi ro: Python startup time / PyInstaller size → Giải pháp: Load on demand, lazy initialization.
+- Rủi ro: Global hotkey conflict với app khác → Giải pháp: Tùy chỉnh phím tắt + fallback.
+- Rủi ro: Clipboard monitor miss event (threading race) → Giải pháp: Fallback polling thread.
 - Rủi ro: DuckDB corruption → Giải pháp: Backup index hàng ngày + retry mechanism.
 
+## 8. Performance Considerations
+
+- **Memory**: PyQt6 GUI overhead ~80-100MB, duckdb ~20-30MB, total < 150MB idle.
+- **Startup**: ~1-2s (PyInstaller, depends on machine).
+- **Search**: DuckDB FTS < 500ms for 10k records.
+- **Clipboard monitoring**: Background thread, minimal impact.
+- **Threading**: ClipboardMonitor + HotkeyListener on separate threads, UI on main QThread.
+
 ## 9. Phụ lục
-- **Công nghệ stack chi tiết** (như trong SRS).
-- **Ước lượng effort sơ bộ**: ~4-6 tuần cho MVP (1 dev full-time).
+- **Technology stack chi tiết** như trong SRS_Python.
+- **Ước lượng effort sơ bộ**: ~3-5 tuần cho MVP (1 dev, tùy kinh nghiệm Python/PyQt6).
 - **Roadmap**: v1.1 – cleanup old data, export zip; v2 – cloud sync option.
+
+## 10. Ghi chép Quyết định Kiến trúc (Architecture Decision Records - ADRs)
+
+### ADR-001: Chọn DuckDB thay vì SQLite cho Full-Text Search
+
+**Status:** ACCEPTED  
+**Context:** DailyClip cần tìm kiếm nhanh trên hàng chục nghìn clips/notes.  
+**Decision:** Sử dụng DuckDB (embedded).  
+**Rationale:**
+- DuckDB columnar → FTS ~3-5x nhanh hơn SQLite FTS5 trên workload text-heavy.
+- Hỗ trợ FTS native.
+- Single-file database → dễ backup.
+- OLAP/analytics quicker → future feature (statistics, trends).
+
+**Alternatives considered:**
+- SQLite + FTS5 (simpler, nhưng chậm hơn cho large text queries).
+
+---
+
+### ADR-002: Chọn PyQt6 thay vì alternative GUI framework
+
+**Status:** ACCEPTED  
+**Context:** Cần GUI modern, native Windows feel, responsive.  
+**Decision:** Sử dụng PyQt6.  
+**Rationale:**
+- Signal/Slot mechanism → clean event handling.
+- Modern widgets, theming support.
+- Excellent Windows native integration.
+- Mature community, good documentation.
+
+**Alternatives considered:**
+- Tkinter (built-in, but limited UI).
+- PySimpleGUI (simpler, but less customizable).
+- Electron + Python backend (overkill for desktop app).
+
+---
+
+### ADR-003: Chọn PyInstaller one-file mode cho distribution
+
+**Status:** ACCEPTED  
+**Context:** Người dùng mong muốn single executable, không cần setup.  
+**Decision:** Dùng PyInstaller với `--onefile`, hook DuckDB.  
+**Rationale:**
+- Users thích download 1 file duy nhất.
+- Dễ distribute, update.
+- Portable, no installer complexity.
+
+**Alternatives considered:**
+- MSI installer (more complex, doesn't match user expectation).
+- exe + separate Python runtime (messy).

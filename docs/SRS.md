@@ -1,15 +1,13 @@
-# Tài liệu Đặc tả Yêu cầu Phần mềm (SRS)  
+# Tài liệu Đặc tả Yêu cầu Phần mềm (SRS) - Python  
 **Tên phần mềm:** DailyClip – Công cụ tự động hóa ghi chú và lưu trữ dữ liệu cá nhân  
-**Phiên bản:** 1.0 (Sơ bộ)  
-**Ngày soạn thảo:** 06/03/2026  
-**Tác giả:** Kiệt (với hỗ trợ tinh chỉnh)  
+**Phiên bản:** 1.0 (Python)  
 
 ## 1. Giới thiệu
 
 ### 1.1 Mục đích
-Tài liệu này mô tả các yêu cầu chức năng và phi chức năng của phần mềm **DailyClip** – một công cụ hỗ trợ năng suất cá nhân (productivity tool) chạy nền trên Windows, tự động thu thập, phân loại và lưu trữ dữ liệu từ clipboard, ảnh chụp màn hình, cùng với giao diện ghi chú nhanh và tìm kiếm toàn cục.
+Tài liệu này mô tả các yêu cầu chức năng và phi chức năng của phần mềm **DailyClip** (Python version) – công cụ hỗ trợ năng suất cá nhân chạy nền trên Windows, tự động thu thập, phân loại và lưu trữ dữ liệu từ clipboard, ảnh chụp màn hình, cùng với giao diện ghi chú nhanh và tìm kiếm toàn cục.
 
-Mục tiêu chính: Giảm thiểu thao tác thủ công khi lưu ý tưởng, code snippet, hình ảnh, giúp người dùng truy xuất thông tin cực nhanh mà không phụ thuộc vào đám mây hoặc công cụ nặng.
+Mục tiêu chính: Giảm thiểu thao tác thủ công khi lưu ý tưởng, code snippet, hình ảnh, giúp người dùng truy xuất thông tin cực nhanh mà không phụ thuộc vào đám mây.
 
 ### 1.2 Phạm vi sản phẩm
 - **Trong phạm vi**:  
@@ -22,19 +20,8 @@ Mục tiêu chính: Giảm thiểu thao tác thủ công khi lưu ý tưởng, c
 
 - **Ngoài phạm vi**:  
   - Đồng bộ đám mây (có thể mở rộng sau).  
-  - Hỗ trợ đa nền tảng (chỉ Windows native).  
+  - Hỗ trợ đa nền tảng (chỉ Windows native v1).  
   - AI phân loại/tóm tắt nội dung (phiên bản sau).
-
-### 1.3 Đối tượng và mức độ đọc hiểu
-- Người dùng cuối (end-user): Cá nhân cần tăng năng suất (developer, designer, researcher).  
-- Nhà phát triển: Đội ngũ implement và bảo trì.  
-- Tester/QA: Kiểm tra tính năng và hiệu suất.
-
-### 1.4 Định nghĩa, viết tắt và thuật ngữ
-- **Clipboard**: Bộ nhớ tạm thời của Windows khi copy (Ctrl+C).  
-- **JSONL**: JSON Lines – mỗi dòng là một object JSON độc lập.  
-- **Global hotkey**: Phím tắt hoạt động toàn hệ thống.  
-- **DuckDB**: Database columnar nhẹ, tối ưu full-text search.
 
 ## 2. Mô tả tổng quát
 
@@ -50,23 +37,23 @@ DailyClip là sự kết hợp giữa clipboard manager (như Ditto), screenshot
 - Xem lưới ảnh chụp trong ngày.
 
 ### 2.3 Đặc điểm người dùng
-- Người dùng cá nhân, quen thuộc với phím tắt (Ctrl+C, Alt+Tab).  
+- Người dùng cá nhân, quen thuộc với phím tắt.  
 - Ưu tiên tốc độ, nhẹ máy, dữ liệu local 100%.  
 - Có thể tích lũy hàng nghìn file sau 1–2 năm.
 
 ### 2.4 Môi trường hoạt động
 - Hệ điều hành: Windows 10/11 (64-bit).  
-- .NET runtime: .NET 8 hoặc 9.  
+- Python: 3.10+ (CPython).  
 - Dung lượng RAM đề xuất: ≥ 4GB (app chạy nền).  
 - Không yêu cầu GPU hoặc internet (offline-first).
 
 ### 2.5 Giả định và ràng buộc
 **Giả định**:  
-- Người dùng chạy Windows và có quyền admin để đăng ký global hotkey.  
+- Người dùng chạy Windows và có quyền để đăng ký global hotkey.  
 - Clipboard không bị chặn bởi phần mềm bảo mật bên thứ ba.
 
 **Ràng buộc**:  
-- Chỉ hỗ trợ Windows (không macOS/Linux ở phiên bản đầu).  
+- Chỉ hỗ trợ Windows (v1).  
 - Dữ liệu lưu local, không encrypt mặc định (có thể thêm sau).  
 - Tối đa 1 instance chạy cùng lúc.
 
@@ -86,8 +73,8 @@ DailyClip là sự kết hợp giữa clipboard manager (như Ditto), screenshot
   - Notes: `notes_[YYYY-MM-DD].md` (một file/ngày).
 
 #### 3.1.2 Tự động hóa Clipboard & Capture
-- REQ-101: Giám sát sự kiện clipboard thay đổi (real-time, không chỉ hook Ctrl+C).  
-- REQ-102: Khi clipboard có text → append object JSONL: `{ "timestamp": "...", "content": "...", "format": "text", "source_url": "..." (nếu detect được) }`.  
+- REQ-101: Giám sát sự kiện clipboard thay đổi (real-time via pyperclip/threading).  
+- REQ-102: Khi clipboard có text → append object JSONL: `{ "timestamp": "...", "content": "...", "format": "text", "source_url": "..." }`.  
 - REQ-103: Khi clipboard có image → lưu .png vào images/ và metadata JSONL.  
 - REQ-104: Deduplicate: Bỏ qua nếu nội dung giống lần copy trước trong 10 giây.  
 - REQ-105: Phím tắt chụp màn hình (mặc định Alt+S): hỗ trợ region / active window / fullscreen, lưu tự động vào images/.
@@ -98,11 +85,11 @@ DailyClip là sự kết hợp giữa clipboard manager (như Ditto), screenshot
   - Alt+N → mở cửa sổ ghi chú nhanh (Markdown editor).  
   - Alt+S → chụp màn hình.  
 - REQ-202: Quick Note window: Editor Markdown, auto-save mỗi 5s hoặc khi Esc/đóng.  
-- REQ-203: Quick Search: Thanh tìm kiếm realtime, hiển thị kết quả từ clips/notes/images (tên file + snippet).  
+- REQ-203: Quick Search: Thanh tìm kiếm realtime, hiển thị kết quả từ clips/notes/images.  
 - REQ-204: Gallery view: Grid ảnh trong ngày, click để mở full-size.
 
 #### 3.1.4 Tìm kiếm & Index
-- REQ-301: Index dữ liệu text (clips/*.jsonl, notes/*.md) bằng DuckDB hoặc SQLite+FTS5.  
+- REQ-301: Index dữ liệu text (clips/*.jsonl, notes/*.md) bằng DuckDB.  
 - REQ-302: Tìm kiếm full-text, fuzzy, sắp xếp theo thời gian giảm dần.  
 - REQ-303: Rebuild/incremental index khi có dữ liệu mới hoặc ngày mới.
 
@@ -111,15 +98,15 @@ DailyClip là sự kết hợp giữa clipboard manager (như Ditto), screenshot
 | ID       | Yêu cầu                              | Mô tả / Tiêu chí đo lường                              |
 |----------|--------------------------------------|-----------------------------------------------------------------|
 | NFR-001  | Hiệu suất – Thời gian phản hồi       | Quick Search < 500ms (với <10.000 file tích lũy).               |
-| NFR-002  | Hiệu suất – Dung lượng               | App chạy nền < 100MB RAM.                                       |
+| NFR-002  | Hiệu suất – Dung lượng               | App chạy nền < 150MB RAM (Python overhead).                    |
 | NFR-003  | Độ tin cậy                           | Không crash khi clipboard thay đổi liên tục (>100 lần/phút).   |
 | NFR-004  | Khả dụng                             | Chạy nền 24/7, tự khởi động cùng Windows (tùy chọn).            |
 | NFR-005  | Bảo mật                              | Dữ liệu local, tùy chọn xóa tự động sau 30/90 ngày.             |
 | NFR-006  | Khả dụng & Bảo trì                   | Dễ backup (zip folder), dễ migrate (cấu trúc thư mục đơn giản).|
-| NFR-007  | Giao diện                            | Modern UI (Mica/Acrylic), hỗ trợ dark/light mode.               |
+| NFR-007  | Giao diện                            | Modern UI (PyQt6 dark theme), hỗ trợ light mode.                |
 
 ### 3.3 Yêu cầu giao diện bên ngoài
-- Windows API: Clipboard events, RegisterHotKey, Graphics Capture.  
+- Windows API: Clipboard (via pyperclip), Hotkey (via keyboard/pynput), Screenshot (via pyautogui/mss).  
 - Không tích hợp API bên thứ ba (offline-first).
 
 ## 4. Kịch bản sử dụng mẫu (Use Cases)
@@ -132,14 +119,39 @@ DailyClip là sự kết hợp giữa clipboard manager (như Ditto), screenshot
 
 ## 5. Công nghệ đề xuất (Technology Stack)
 
-- Ngôn ngữ: C# .NET 9 (hoặc .NET 8 LTS).  
-- UI: WinUI 3 (hiện đại, Mica/Acrylic, tốt hơn WPF).  
-- Search/Index: DuckDB (ưu tiên) hoặc SQLite + FTS5.  
-- Image: SixLabors.ImageSharp.  
-- Hotkey/Clipboard: P/Invoke Windows API + Clipboard.ContentChanged.  
-- Markdown: Markdig + custom control.
+| Thành phần              | Công nghệ Python                    |
+|------------------------|------------------------------------|
+| **Language**            | Python 3.10+                       |
+| **GUI Framework**       | PyQt6 hoặc PySide6                 |
+| **Search/Index**        | duckdb (duckdb-python)             |
+| **Image Processing**    | Pillow (PIL)                       |
+| **Hotkey/Clipboard**    | keyboard / pynput / pyperclip      |
+| **Screenshot**          | pyautogui hoặc mss + PIL           |
+| **Markdown**            | markdown2 hoặc python-markdown     |
+| **Dependency Injection**| dependency-injector                |
+| **Testing**             | pytest + pytest-mock               |
+| **Logging**             | logging (built-in) + colorlog      |
+| **Distribution**        | PyInstaller (one-file mode)        |
+| **Configuration**       | JSON hoặc configparser             |
+| **Data Serialization**  | json (built-in), dataclasses       |
 
-## 6. Phụ lục
-- Cấu trúc thư mục mẫu.  
-- Danh sách phím tắt mặc định (có thể tùy chỉnh).  
-- Roadmap mở rộng (sync, AI tag, encrypt...).
+---
+
+## 6. Định nghĩa Từ (Glossary)
+
+- **Clip**: Đơn vị dữ liệu clipboard (text/image) được lưu trữ.
+- **Screenshot**: Ảnh chụp màn hình được lưu trữ.
+- **Note**: Ghi chú thủ công Markdown.
+- **Index**: DuckDB database chứa full-text search data.
+- **Global Hotkey**: Phím tắt hệ thống (không cần focus app).
+- **Deduplicate**: Loại bỏ dữ liệu trùng lặp trong cửa sổ thời gian.
+- **JSONL**: JSON Lines format (một JSON object per line).
+- **FTS**: Full-Text Search (tìm kiếm văn bản đầy đủ).
+
+---
+
+## 7. Ước tính Effort & Timeline
+
+- **MVP (phiên bản 1.0)**: 3-5 tuần (tùy kinh nghiệm với PyQt6).
+- **v1.1 (enhanced)**: +2 tuần (cleanup, export, settings UI).
+- **v2 (cloud sync)**: +4-6 tuần.

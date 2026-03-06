@@ -1,765 +1,751 @@
-# Tài liệu Hướng dẫn Unit Test (Unit Testing Guidelines)  
-**Dự án:** DailyClip  
+# Tài liệu Hướng dẫn Unit Test (Unit Testing Guidelines) - Python  
+**Dự án:** DailyClip (Python version)  
 **Phiên bản:** 1.0  
 **Áp dụng cho:** Toàn bộ codebase testable (Domain, Application, Infrastructure layers)  
 **Mục tiêu:** Đảm bảo chất lượng code, dễ refactor, phát hiện bug sớm. Ưu tiên **unit test nhanh, độc lập, dễ đọc**.
 
 ---
 
-## 1. Chiến lược Test theo Clean Architecture
+## 1. Testing Strategy: Layered Architecture
 
-Clean Architecture → test từ trong ra ngoài (inside-out testing):
+Theo Clean Architecture, test từ trong ra ngoài (inside-out):
 
 | Layer              | Loại test chính          | Mocks cần thiết? | Công cụ khuyến nghị          | Coverage mục tiêu |
 |--------------------|--------------------------|------------------|------------------------------|-------------------|
-| **Domain**         | Pure unit tests          | Không            | xUnit                        | >95%              |
-| **Application**    | Unit tests (use cases)   | Có (interfaces)  | xUnit + Moq                  | >85%              |
-| **Infrastructure** | Unit + nhẹ integration   | Có (nếu có thể)  | xUnit + Moq + InMemory DuckDB | >70% (ưu tiên critical paths) |
-| **Presentation**   | ViewModel tests          | Có (services)    | xUnit + Moq + CommunityToolkit | >80% cho ViewModel logic |
-| **UI (WinUI Views)** | Không unit test          | -                | -                            | Manual / UI test nếu cần |
+| **Domain**         | Pure unit tests          | Không            | pytest                       | >95%              |
+| **Application**    | Unit tests (services)    | Có (interfaces)  | pytest + pytest-mock         | >85%              |
+| **Infrastructure** | Unit + nhẹ integration   | Có (nếu có thể)  | pytest + pytest-mock         | >70% (critical path) |
+| **Presentation**   | Widget/Signal tests      | Có (services)    | pytest + pytest-mock (PyQt6 hard to test) | >60% |
+| **UI (PyQt6 Views)** | Manual / Integration test | -                | pytest-qt (optional)         | Manual testing    |
 
 **Thứ tự ưu tiên viết test**:
 1. Domain logic (entities, value objects, business rules).
 2. Application services / use cases.
-3. ViewModels (MVVM).
-4. Infrastructure (storage, search) – dùng in-memory hoặc mock.
-
-**Không test**:
-- Framework code (WinUI binding, Windows API trực tiếp).
-- UI rendering (dùng UI testing nếu cần, ví dụ Appium hoặc WinAppDriver sau này).
+3. Infrastructure (storage, search).
+4. Presentation (ViewModels/Signal handlers).
+5. UI Views (skip unit test, do integration test if needed).
 
 ---
 
-## 2. Công cụ & Setup
+## 2. Setup & Tools
 
-Thêm vào solution (tạo project riêng: `DailyClip.Tests` – Class Library .NET 9):
-
-### 2.1 NuGet Packages
-
-```xml
-<ItemGroup>
-  <!-- Test framework -->
-  <PackageReference Include="xunit" Version="2.9.2" />
-  <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" PrivateAssets="all" />
-  <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
-  
-  <!-- Mocking & Assertions -->
-  <PackageReference Include="Moq" Version="4.20.72" />
-  <PackageReference Include="FluentAssertions" Version="7.0.0" />
-  
-  <!-- Tools -->
-  <PackageReference Include="CommunityToolkit.Mvvm" Version="8.3.2" />
-  <PackageReference Include="DuckDB.NET.Data" Version="1.0.0" />
-  
-  <!-- Coverage (optional) -->
-  <PackageReference Include="coverlet.collector" Version="6.0.0" PrivateAssets="all" />
-</ItemGroup>
+### 2.1 Project Structure
+```
+dailyclip/
+├── dailyclip/              # Source code
+│   ├── core/
+│   ├── application/
+│   ├── infrastructure/
+│   ├── presentation/
+│   └── common/
+│
+├── tests/                  # Test directory (parallel structure)
+│   ├── __init__.py
+│   ├── conftest.py         # Pytest fixtures & config
+│   ├── test_entities.py    # Domain layer tests
+│   ├── core/
+│   │   ├── __init__.py
+│   │   └── test_entities.py
+│   ├── application/
+│   │   └── test_services.py
+│   ├── infrastructure/
+│   │   ├── test_clipboard.py
+│   │   ├── test_search.py
+│   │   └── test_storage.py
+│   └── presentation/
+│       └── test_viewmodels.py
+│
+└── setup.py / pyproject.toml
 ```
 
-### 2.2 Project Structure
-```
-DailyClip/
-├── DailyClip.Core/                (Domain + Application layer)
-├── DailyClip.Infrastructure/      (Infrastructure layer)
-├── DailyClip.Presentation/        (Presentation layer - WinUI 3)
-├── DailyClip.Tests/               (Unit tests - NEW)
-│   ├── Domain/
-│   │   └── Entities/
-│   │       └── ClipItemTests.cs
-│   ├── Application/
-│   │   └── Services/
-│   │       └── ClipboardMonitorServiceTests.cs
-│   ├── Infrastructure/
-│   │   └── Services/
-│   │       └── DuckDBSearchServiceTests.cs
-│   └── Presentation/
-│       └── ViewModels/
-│           └── QuickSearchViewModelTests.cs
-└── DailyClip.sln
+### 2.2 Install Dependencies
+```bash
+pip install pytest pytest-asyncio pytest-cov pytest-mock
 ```
 
-### 2.3 Test Runner
+Add to `pyproject.toml` or `setup.cfg`:
+```ini
+[tool:pytest]
+asyncio_mode = auto
+testpaths = tests
+python_files = test_*.py
+python_classes = Test*
+python_functions = test_*
+addopts = -v --cov=dailyclip --cov-report=html
+```
+
+### 2.3 Running Tests
 ```bash
 # Run all tests
-dotnet test
+pytest
 
 # Run with coverage
-dotnet test /p:CollectCoverage=true /p:CoverageFormat=opencover
+pytest --cov=dailyclip --cov-report=html
 
 # Run specific test file
-dotnet test --filter "FullyQualifiedName=DailyClip.Tests.Domain.Entities.ClipItemTests"
+pytest tests/test_entities.py
 
-# Watch mode (VS extension: Test Explorer Live Unit Testing)
+# Run specific test
+pytest tests/test_entities.py::TestClipItem::test_creation
+
+# Watch mode (requires pytest-watch)
+pip install pytest-watch
+ptw
+
+# Parallel execution (requires pytest-xdist)
+pip install pytest-xdist
+pytest -n auto
 ```
 
 ---
 
-## 3. Best Practices chung
+## 3. Test Basics & Best Practices
 
-### 3.1 AAA Pattern (Arrange – Act – Assert)
-```csharp
-[Fact]
-public void ExampleTest()
-{
-    // Arrange: Set up test data & mocks
-    var service = new ExampleService();
-    var input = new ExampleInput { Value = 42 };
+### 3.1 Test Structure (AAA Pattern)
+```python
+import pytest
+from dailyclip.core.entities import ClipItem, ClipType
+from datetime import datetime
 
-    // Act: Execute the method under test
-    var result = service.Process(input);
-
-    // Assert: Verify the result
-    result.Should().Be(42);
-}
+class TestClipItem:
+    """Test ClipItem entity."""
+    
+    def test_creation_success(self):
+        """Test creating a ClipItem successfully."""
+        # Arrange: Set up test data
+        timestamp = datetime.now()
+        content = "test content"
+        
+        # Act: Execute the function/method under test
+        clip = ClipItem(
+            timestamp=timestamp,
+            content=content,
+            clip_type=ClipType.TEXT
+        )
+        
+        # Assert: Verify the result
+        assert clip.timestamp == timestamp
+        assert clip.content == content
+        assert clip.clip_type == ClipType.TEXT
+    
+    def test_immutability(self):
+        """Test that ClipItem is immutable."""
+        clip = ClipItem(
+            timestamp=datetime.now(),
+            content="test",
+            clip_type=ClipType.TEXT
+        )
+        
+        with pytest.raises(AttributeError):
+            clip.content = "modified"  # Should fail (frozen dataclass)
 ```
 
 ### 3.2 Test Naming Convention
-Format: `[MethodUnderTest]_[Scenario]_[ExpectedResult]`
+Format: `test_[unit_under_test]_[scenario]_[expected_result]`
 
-```csharp
-// ✓ Good (clear intent)
-public void AppendClipAsync_DuplicateContentWithin10s_SkipsSave()
-public void Search_EmptyQuery_ReturnsEmpty()
-public void ClipItem_InvalidTimestamp_ThrowsArgumentException()
+```python
+# ✓ Clear, describes what's being tested
+def test_is_duplicate_same_content_10_seconds_returns_true():
+    pass
 
-// ✗ Bad (unclear)
-public void Test1()
-public void AppendClipAsyncTest()
-public void TestSearch()
+def test_search_empty_query_raises_value_error():
+    pass
+
+def test_append_clip_valid_data_saves_successfully():
+    pass
+
+# ✗ Unclear
+def test1():
+    pass
+
+def test_create():
+    pass
+
+def test_search_test():
+    pass
 ```
 
-### 3.3 One Assertion Per Concept
-```csharp
-// ✓ Better: Test one behavior
-[Fact]
-public void SaveClip_Success_ReturnsClipId()
-{
-    var result = _service.Save(clip);
-    result.Should().NotBeEmpty(); // Assert ID generated
-}
-
-[Fact]
-public void SaveClip_Success_UpdatesLastSavedTime()
-{
-    var before = DateTimeOffset.Now;
-    _service.Save(clip);
-    var after = DateTimeOffset.Now;
+### 3.3 One Concept Per Test
+```python
+# ✓ Good: Test one behavior/assertion
+def test_append_clip_success_calls_storage_once():
+    """Test that valid clip appends once."""
+    storage_mock = Mock(spec=IStorageService)
+    service = ClipboardMonitorService(storage_mock)
     
-    _service.LastSaved.Should().BeOnOrAfter(before).And.BeOnOrBefore(after);
-}
-
-// ✗ Bad: Multiple behaviors in one test
-[Fact]
-public void SaveClipTest()
-{
-    var result = _service.Save(clip);
-    result.Should().NotBeEmpty();
-    _service.LastSaved.Should().NotBe(default);
-    // ...many more asserts
-}
-```
-
-### 3.4 Async Tests
-```csharp
-// ✓ Always use async/await (never .Result or .Wait())
-[Fact]
-public async Task AppendClipAsync_WithValidClip_SavesSuccessfully()
-{
-    var clip = new ClipItem(DateTimeOffset.Now, "text", "content");
+    clip = create_test_clip()
+    service.append_clip(clip)
     
-    await _service.AppendClipAsync(clip);
+    storage_mock.append_clip.assert_called_once_with(clip)
+
+def test_append_clip_success_logs_info():
+    """Test that append clips logs info message."""
+    logger_mock = Mock()
+    storage_mock = Mock()
+    service = ClipboardMonitorService(storage_mock, logger_mock)
     
-    _storageMock.Verify(s => s.AppendAsync(It.IsAny<ClipItem>()), Times.Once);
-}
+    service.append_clip(create_test_clip())
+    
+    logger_mock.info.assert_called()
 
-// ✗ Never do this
-var result = _service.AppendClipAsync(clip).Result; // Deadlock risk!
+# ✗ Bad: Testing multiple behaviors
+def test_append_clip_everything():
+    """Test everything about append."""
+    storage_mock = Mock()
+    logger_mock = Mock()
+    service = ClipboardMonitorService(storage_mock, logger_mock)
+    
+    clip = create_test_clip()
+    service.append_clip(clip)
+    
+    # Todo many assertions...
+    storage_mock.append_clip.assert_called_once()
+    logger_mock.info.assert_called()
+    # ... more asserts
+    # Hard to diagnose which failed!
 ```
 
-### 3.5 Test Parameterization
-```csharp
-// ✓ Use [Theory] + [InlineData] for multiple scenarios
-[Theory]
-[InlineData("")]
-[InlineData(null)]
-[InlineData("   ")]
-public void AppendClipAsync_EmptyOrWhitespace_ThrowsArgumentException(string content)
-{
-    FluentActions.Invoking(() => new ClipItem(DateTimeOffset.Now, "text", content))
-        .Should().Throw<ArgumentException>();
-}
+### 3.4 Use Fixtures for Reusable Setup
+```python
+import pytest
+from dailyclip.core.entities import ClipItem, ClipType
+from datetime import datetime
 
-// ✓ Or [MemberData] for complex data
-[Theory]
-[MemberData(nameof(GetInvalidClips))]
-public void IsValid_InvalidClip_ReturnsFalse(ClipItem clip)
-{
-    clip.IsValid().Should().BeFalse();
-}
+@pytest.fixture
+def sample_clip():
+    """Provide sample ClipItem for tests."""
+    return ClipItem(
+        timestamp=datetime(2026, 3, 6, 10, 30, 0),
+        content="test content",
+        clip_type=ClipType.TEXT
+    )
 
-public static IEnumerable<object[]> GetInvalidClips => new List<object[]>
-{
-    new object[] { new ClipItem(default, "text", "content") }, // Invalid timestamp
-    new object[] { new ClipItem(DateTimeOffset.Now, "text", "") }, // Empty content
-};
+@pytest.fixture
+def storage_mock():
+    """Provide mock storage service."""
+    from unittest.mock import Mock
+    return Mock(spec=IStorageService)
+
+@pytest.fixture
+def clipboard_monitor(storage_mock):
+    """Provide ClipboardMonitorService with mocked storage."""
+    return ClipboardMonitorService(storage_mock)
+
+# Usage in tests
+class TestClipboardMonitor:
+    def test_append_saves(self, clipboard_monitor, storage_mock, sample_clip):
+        clipboard_monitor.append_clip(sample_clip)
+        storage_mock.append_clip.assert_called_once_with(sample_clip)
 ```
 
-### 3.6 Mock Best Practices
-```csharp
-// ✓ Mock only interfaces
-var storageMock = new Mock<IStorageService>();
+### 3.5 conftest.py for Global Fixtures
+```python
+# tests/conftest.py
+import pytest
+from unittest.mock import Mock, AsyncMock
+from datetime import datetime
+from dailyclip.core.entities import ClipItem, ClipType
+from dailyclip.core.protocols import IStorageService, ISearchService
 
-// ✓ Setup return values
-storageMock
-    .Setup(s => s.GetClipsAsync(It.IsAny<DateOnly>()))
-    .ReturnsAsync(new List<ClipItem> { new(DateTimeOffset.Now, "text", "code") });
+@pytest.fixture
+def sample_clip():
+    """Test clip."""
+    return ClipItem(
+        timestamp=datetime(2026, 3, 6, 10, 0, 0),
+        content="test",
+        clip_type=ClipType.TEXT
+    )
 
-// ✓ Verify method calls
-storageMock.Verify(s => s.SaveAsync(It.IsAny<ClipItem>()), Times.Once);
-storageMock.Verify(s => s.SaveAsync(It.Is<ClipItem>(c => c.Content == "specific")), Times.Once);
+@pytest.fixture
+def storage_mock():
+    """Mock storage service."""
+    mock = AsyncMock(spec=IStorageService)
+    mock.append_clip = AsyncMock()
+    mock.create_daily_folder = Mock(return_value=Path("/mock/path"))
+    return mock
 
-// ✗ Don't mock concrete classes (unless absolutely necessary)
-var fakeService = new Mock<ConcreteClipboardService>(); // Bad!
+@pytest.fixture
+def search_mock():
+    """Mock search service."""
+    mock = AsyncMock(spec=ISearchService)
+    mock.search = AsyncMock(return_value=[])
+    return mock
 
-// ✗ Don't over-verify (brittle tests)
-storageMock.Verify(s => s.InternalMethodA(), Times.Once); // Bad
-```
-
-### 3.7 FluentAssertions
-```csharp
-// ✓ Readable assertions
-result.Should().NotBeNull()
-    .And.BeOfType<ClipItem>()
-    .Which.Content.Should().StartWith("async");
-
-results.Should()
-    .HaveCount(5)
-    .And.ContainSingle(r => r.Type == "text");
-
-// ✓ Exception testing
-FluentActions.Invoking(() => service.Process(null))
-    .Should().Throw<ArgumentNullException>()
-    .WithMessage("*clip*");
-```
-
-### 3.8 IDisposable for Resource Cleanup
-```csharp
-public class DuckDBSearchServiceTests : IDisposable
-{
-    private readonly DuckDBSearchService _sut;
-
-    public DuckDBSearchServiceTests()
-    {
-        _sut = new DuckDBSearchService(":memory:");
-    }
-
-    [Fact]
-    public async Task IndexAsync_ValidClip_Indexed()
-    {
-        // Test
-    }
-
-    public void Dispose()
-    {
-        _sut?.Dispose();
-    }
-}
+@pytest.fixture
+def logger_mock():
+    """Mock logger."""
+    return Mock()
 ```
 
 ---
 
-## 4. Unit Test Examples cụ thể cho DailyClip
+## 4. Testing Different Layers
 
-### 4.1 Domain Layer: Entity Tests (Pure, no mock)
+### 4.1 Domain Layer Tests (No Mocks)
+```python
+# tests/core/test_entities.py
+import pytest
+from datetime import datetime
+from dailyclip.core.entities import ClipItem, ClipType
 
-```csharp
-// DailyClip.Tests/Domain/Entities/ClipItemTests.cs
-using Xunit;
-using FluentAssertions;
-using DailyClip.Core.Entities;
-
-namespace DailyClip.Tests.Domain.Entities;
-
-public class ClipItemTests
-{
-    [Fact]
-    public void Constructor_ValidArguments_CreatesSuccessfully()
-    {
-        // Arrange & Act
-        var clip = new ClipItem(DateTimeOffset.Now, "text", "some code");
-
-        // Assert
-        clip.Content.Should().Be("some code");
-        clip.Type.Should().Be("text");
-    }
-
-    [Fact]
-    public void Constructor_NullContent_ThrowsArgumentNullException()
-    {
-        // Act & Assert
-        FluentActions.Invoking(() => 
-            new ClipItem(DateTimeOffset.Now, "text", null!))
-            .Should().Throw<ArgumentNullException>()
-            .WithParameterName("content");
-    }
-
-    [Fact]
-    public void Constructor_DefaultTimestamp_ThrowsArgumentException()
-    {
-        // Act & Assert
-        FluentActions.Invoking(() => 
-            new ClipItem(default, "text", "content"))
-            .Should().Throw<ArgumentException>()
-            .WithMessage("*timestamp*");
-    }
-
-    [Fact]
-    public void IsDuplicate_SameContentWithin10Seconds_ReturnsTrue()
-    {
-        // Arrange
-        var now = DateTimeOffset.Now;
-        var clip1 = new ClipItem(now, "text", "const API_KEY = '...'");
-        var clip2 = new ClipItem(now.AddSeconds(5), "text", "const API_KEY = '...'");
-
-        // Act & Assert
-        clip1.IsDuplicate(clip2).Should().BeTrue();
-    }
-
-    [Fact]
-    public void IsDuplicate_DifferentContent_ReturnsFalse()
-    {
-        // Arrange
-        var now = DateTimeOffset.Now;
-        var clip1 = new ClipItem(now, "text", "content A");
-        var clip2 = new ClipItem(now.AddSeconds(5), "text", "content B");
-
-        // Act & Assert
-        clip1.IsDuplicate(clip2).Should().BeFalse();
-    }
-
-    [Fact]
-    public void IsDuplicate_SameContentAfter10Seconds_ReturnsFalse()
-    {
-        // Arrange (deduplicate window is 10s)
-        var now = DateTimeOffset.Now;
-        var clip1 = new ClipItem(now, "text", "content");
-        var clip2 = new ClipItem(now.AddSeconds(11), "text", "content");
-
-        // Act & Assert
-        clip1.IsDuplicate(clip2).Should().BeFalse();
-    }
-}
+class TestClipItem:
+    """Test ClipItem domain entity."""
+    
+    def test_creation_with_all_fields(self):
+        """Test creating clip with all fields."""
+        timestamp = datetime(2026, 3, 6, 10, 0, 0)
+        clip = ClipItem(
+            timestamp=timestamp,
+            content="code snippet",
+            clip_type=ClipType.TEXT,
+            format="code"
+        )
+        
+        assert clip.timestamp == timestamp
+        assert clip.content == "code snippet"
+        assert clip.clip_type == ClipType.TEXT
+        assert clip.format == "code"
+    
+    def test_creation_with_minimal_fields(self):
+        """Test creating clip with minimal required fields."""
+        clip = ClipItem(
+            timestamp=datetime.now(),
+            content="text",
+            clip_type=ClipType.TEXT
+        )
+        
+        assert clip.format == "plain"  # Default value
+    
+    def test_immutability(self):
+        """Test clip is immutable (frozen dataclass)."""
+        clip = ClipItem(
+            timestamp=datetime.now(),
+            content="text",
+            clip_type=ClipType.TEXT
+        )
+        
+        with pytest.raises(AttributeError):
+            clip.content = "changed"
+    
+    @pytest.mark.parametrize("clip_type", [ClipType.TEXT, ClipType.IMAGE, ClipType.HTML])
+    def test_all_clip_types(self, clip_type):
+        """Test all ClipType values are valid."""
+        clip = ClipItem(
+            timestamp=datetime.now(),
+            content="data",
+            clip_type=clip_type
+        )
+        
+        assert clip.clip_type == clip_type
 ```
 
-### 4.2 Application Layer: Service Tests (with Mocks)
+### 4.2 Application Layer Tests (With Mocks)
+```python
+# tests/application/test_services.py
+import pytest
+from unittest.mock import AsyncMock, Mock, call
+from datetime import datetime
+from dailyclip.application.services.clipboard import ClipboardMonitorService
+from dailyclip.core.entities import ClipItem, ClipType
+from dailyclip.core.protocols import IStorageService, ISearchService
 
-```csharp
-// DailyClip.Tests/Application/Services/ClipboardMonitorServiceTests.cs
-using Xunit;
-using Moq;
-using FluentAssertions;
-using DailyClip.Core.Entities;
-using DailyClip.Core.Interfaces;
-using DailyClip.Application.Services;
-
-namespace DailyClip.Tests.Application.Services;
-
-public class ClipboardMonitorServiceTests
-{
-    private readonly Mock<IStorageService> _storageMock;
-    private readonly Mock<ISearchService> _searchMock;
-    private readonly Mock<ILogger<ClipboardMonitorService>> _loggerMock;
-    private readonly ClipboardMonitorService _sut;
-
-    public ClipboardMonitorServiceTests()
-    {
-        _storageMock = new Mock<IStorageService>();
-        _searchMock = new Mock<ISearchService>();
-        _loggerMock = new Mock<ILogger<ClipboardMonitorService>>();
-
-        _sut = new ClipboardMonitorService(
-            _storageMock.Object,
-            _searchMock.Object,
-            _loggerMock.Object);
-    }
-
-    [Fact]
-    public async Task ProcessClipboardTextAsync_NewContent_SavesAndIndex()
-    {
-        // Arrange
-        string content = "async Task Main() { }";
-        string? sourceUrl = "https://github.com/example";
+class TestClipboardMonitor:
+    """Test ClipboardMonitorService application layer."""
+    
+    @pytest.mark.asyncio
+    async def test_process_clipboard_saves_clip(self, storage_mock, sample_clip):
+        """Test processing clipboard saves clip to storage."""
+        search_mock = AsyncMock(spec=ISearchService)
+        monitor = ClipboardMonitorService(storage_mock, search_mock)
         
-        _storageMock
-            .Setup(s => s.AppendClipAsync(It.IsAny<ClipItem>()))
-            .Returns(Task.CompletedTask);
+        await monitor._process_clipboard(sample_clip.content)
         
-        _searchMock
-            .Setup(s => s.IndexClipAsync(It.IsAny<ClipItem>()))
-            .Returns(Task.CompletedTask);
-
-        // Act
-        await _sut.ProcessClipboardTextAsync(content, sourceUrl);
-
-        // Assert: Verify both storage and search were called
-        _storageMock.Verify(
-            s => s.AppendClipAsync(It.Is<ClipItem>(c => 
-                c.Content == content && c.SourceUrl == sourceUrl && c.Type == "text")),
-            Times.Once);
-
-        _searchMock.Verify(
-            s => s.IndexClipAsync(It.IsAny<ClipItem>()),
-            Times.Once);
-    }
-
-    [Fact]
-    public async Task ProcessClipboardTextAsync_DuplicateWithin10Seconds_SkipsSave()
-    {
-        // Arrange
-        var content = "duplicate code";
-        var clip = new ClipItem(DateTimeOffset.Now, "text", content);
+        storage_mock.append_clip.assert_called_once()
+    
+    @pytest.mark.asyncio
+    async def test_duplicate_within_10s_skipped(self, storage_mock, search_mock):
+        """Test duplicate clips within 10s are skipped."""
+        monitor = ClipboardMonitorService(storage_mock, search_mock)
+        content = "duplicate test"
         
-        _sut.LastProcessedClip = clip; // Simulate previous clip
-
-        _storageMock.Reset(); // Should not be called
-
-        // Act
-        await _sut.ProcessClipboardTextAsync(content, null);
-
-        // Assert: Storage should NOT be called for duplicate
-        _storageMock.Verify(
-            s => s.AppendClipAsync(It.IsAny<ClipItem>()),
-            Times.Never);
-    }
-
-    [Fact]
-    public async Task ProcessClipboardTextAsync_NullContent_ThrowsArgumentNullException()
-    {
-        // Act & Assert
-        await FluentActions.Invoking(() => 
-            _sut.ProcessClipboardTextAsync(null!, null))
-            .Should().ThrowAsync<ArgumentNullException>();
-    }
-}
+        await monitor._process_clipboard(content)
+        await monitor._process_clipboard(content)  # Same content
+        
+        # Check called only once
+        storage_mock.append_clip.assert_called_once()
+    
+    @pytest.mark.asyncio
+    async def test_different_content_not_skipped(self, storage_mock, search_mock):
+        """Test different content is NOT skipped."""
+        monitor = ClipboardMonitorService(storage_mock, search_mock)
+        
+        await monitor._process_clipboard("content1")
+        await monitor._process_clipboard("content2")
+        
+        # Check called twice
+        assert storage_mock.append_clip.call_count == 2
+    
+    @pytest.mark.asyncio
+    async def test_storage_error_logged(self, storage_mock, search_mock, logger_mock):
+        """Test storage errors are logged."""
+        storage_mock.append_clip.side_effect = IOError("Storage failed")
+        monitor = ClipboardMonitorService(storage_mock, search_mock)
+        
+        # Should not raise, just log
+        await monitor._process_clipboard("content")
+        
+        # Verify it tried to log error
+        # (depends on your logging implementation)
 ```
 
-### 4.3 Infrastructure Layer: DuckDB Search Tests (In-memory)
+### 4.3 Infrastructure Layer Tests
+```python
+# tests/infrastructure/test_search.py
+import pytest
+from pathlib import Path
+from unittest.mock import Mock, patch, MagicMock
+from dailyclip.infrastructure.duckdb_search import DuckDBSearchService
+from dailyclip.core.entities import SearchResult
 
-```csharp
-// DailyClip.Tests/Infrastructure/Services/DuckDBSearchServiceTests.cs
-using Xunit;
-using FluentAssertions;
-using DailyClip.Core.Entities;
-using DailyClip.Infrastructure.Services;
-
-namespace DailyClip.Tests.Infrastructure.Services;
-
-public class DuckDBSearchServiceTests : IDisposable
-{
-    private readonly DuckDBSearchService _sut;
-    private readonly string _dbPath = ":memory:"; // In-memory for fast tests
-
-    public DuckDBSearchServiceTests()
-    {
-        _sut = new DuckDBSearchService(_dbPath);
-        _sut.InitializeAsync().GetAwaiter().GetResult();
-    }
-
-    [Fact]
-    public async Task IndexClipAsync_ValidClip_IndexedSuccessfully()
-    {
-        // Arrange
-        var clip = new ClipItem(
-            DateTimeOffset.Now,
-            "text",
-            "async await pattern in C#");
-
-        // Act
-        await _sut.IndexClipAsync(clip);
-        var results = await _sut.SearchAsync("async", 10);
-
-        // Assert
-        results.Should().HaveCount(1);
-        results[0].Snippet.Should().Contain("async");
-    }
-
-    [Theory]
-    [InlineData("async await")]
-    [InlineData("pattern")]
-    [InlineData("C#")]
-    public async Task SearchAsync_WithMatchingKeyword_ReturnsResults(string query)
-    {
-        // Arrange
-        var clip = new ClipItem(
-            DateTimeOffset.Now,
-            "text",
-            "async await pattern in C#");
+class TestDuckDBSearchService:
+    """Test DuckDB search service."""
+    
+    @pytest.fixture
+    def search_service(self, tmp_path):
+        """Create search service with temporary database."""
+        db_path = tmp_path / "test.duckdb"
+        return DuckDBSearchService(db_path)
+    
+    @pytest.mark.asyncio
+    async def test_search_returns_results(self, search_service):
+        """Test search returns results."""
+        # Arrange: Insert test data
+        # (Simplified - real test would use actual DuckDB)
         
-        await _sut.IndexClipAsync(clip);
-
-        // Act
-        var results = await _sut.SearchAsync(query, 10);
-
-        // Assert
-        results.Should().NotBeEmpty().And.ContainSingle();
-    }
-
-    [Fact]
-    public async Task SearchAsync_NoMatches_ReturnsEmpty()
-    {
-        // Arrange
-        var clip = new ClipItem(DateTimeOffset.Now, "text", "C# code");
-        await _sut.IndexClipAsync(clip);
-
-        // Act
-        var results = await _sut.SearchAsync("Python", 10);
-
-        // Assert
-        results.Should().BeEmpty();
-    }
-
-    [Fact]
-    public async Task SearchAsync_MultipleClips_RanksByRelevance()
-    {
-        // Arrange: Index multiple clips with varying relevance
-        var clips = new[]
-        {
-            new ClipItem(DateTimeOffset.Now.AddSeconds(-1), "text", "async async async"),
-            new ClipItem(DateTimeOffset.Now.AddSeconds(-2), "text", "async pattern"),
-            new ClipItem(DateTimeOffset.Now.AddSeconds(-3), "text", "pattern matching"),
-        };
-
-        foreach (var clip in clips)
-            await _sut.IndexClipAsync(clip);
-
-        // Act
-        var results = await _sut.SearchAsync("async", 10);
-
-        // Assert: First result should match "async" best (higher score)
-        results.Should().HaveCountGreaterThan(1);
-        results[0].RelevanceScore.Should().BeGreaterThanOrEqualTo(results[1].RelevanceScore);
-    }
-
-    public void Dispose() => _sut?.Dispose();
-}
+        # Act
+        results = await search_service.search("test", limit=10)
+        
+        # Assert
+        assert isinstance(results, list)
+        
+    @pytest.mark.asyncio
+    async def test_search_empty_query_raises_error(self, search_service):
+        """Test empty query raises ValueError."""
+        with pytest.raises(ValueError):
+            await search_service.search("", limit=10)
+    
+    @pytest.mark.asyncio
+    async def test_search_limit_respected(self, search_service):
+        """Test search respects limit parameter."""
+        # Would need actual data inserted
+        results = await search_service.search("test", limit=5)
+        assert len(results) <= 5
 ```
 
-### 4.4 Presentation Layer: ViewModel Tests
+### 4.4 Async Tests
+```python
+# Example of testing async code
+import pytest
+from unittest.mock import AsyncMock
 
-```csharp
-// DailyClip.Tests/Presentation/ViewModels/QuickSearchViewModelTests.cs
-using Xunit;
-using Moq;
-using FluentAssertions;
-using CommunityToolkit.Mvvm.ComponentModel;
-using DailyClip.Core.Entities;
-using DailyClip.Core.Interfaces;
-using DailyClip.Presentation.ViewModels;
-
-namespace DailyClip.Tests.Presentation.ViewModels;
-
-public class QuickSearchViewModelTests
-{
-    private readonly Mock<ISearchService> _searchMock;
-    private QuickSearchViewModel _sut;
-
-    public QuickSearchViewModelTests()
-    {
-        _searchMock = new Mock<ISearchService>();
-        _sut = new QuickSearchViewModel(_searchMock.Object);
-    }
-
-    [Fact]
-    public async Task SearchCommand_WithValidQuery_CallsSearchServiceAndUpdatesResults()
-    {
-        // Arrange
-        var expectedResults = new List<SearchResult>
-        {
-            new(DateTimeOffset.Now, "async await", "/path/clip1.jsonl", "text", 0.95f),
-            new(DateTimeOffset.Now, "await pattern", "/path/clip2.jsonl", "text", 0.85f),
-        };
-
-        _searchMock
-            .Setup(s => s.SearchAsync("async", 50))
-            .ReturnsAsync(expectedResults);
-
-        // Act
-        _sut.Query = "async";
-        await _sut.SearchCommand.ExecuteAsync(null);
-
-        // Assert
-        _searchMock.Verify(s => s.SearchAsync("async", 50), Times.Once);
-        _sut.Results.Should().HaveCount(2);
-        _sut.Results[0].Snippet.Should().Be("async await");
-    }
-
-    [Fact]
-    public async Task SearchCommand_EmptyQuery_DoesNotCallSearchService()
-    {
-        // Arrange
-        _sut.Query = "";
-
-        // Act
-        await _sut.SearchCommand.ExecuteAsync(null);
-
-        // Assert
-        _searchMock.Verify(s => s.SearchAsync(It.IsAny<string>(), It.IsAny<int>()), Times.Never);
-    }
-
-    [Fact]
-    public void Query_OnPropertyChanged_NotifiesObservers()
-    {
-        // Arrange
-        bool notified = false;
-        _sut.PropertyChanged += (sender, args) =>
-        {
-            if (args.PropertyName == nameof(QuickSearchViewModel.Query))
-                notified = true;
-        };
-
-        // Act
-        _sut.Query = "test query";
-
-        // Assert
-        notified.Should().BeTrue();
-    }
-}
+class TestAsyncOperations:
+    """Test async operations."""
+    
+    @pytest.mark.asyncio
+    async def test_async_operation_success(self):
+        """Test successful async operation."""
+        mock_service = AsyncMock()
+        mock_service.fetch.return_value = {"status": "ok"}
+        
+        result = await mock_service.fetch()
+        
+        assert result["status"] == "ok"
+        mock_service.fetch.assert_called_once()
+    
+    @pytest.mark.asyncio
+    async def test_async_operation_with_exception(self):
+        """Test async operation that raises exception."""
+        mock_service = AsyncMock()
+        mock_service.fetch.side_effect = IOError("Connection failed")
+        
+        with pytest.raises(IOError):
+            await mock_service.fetch()
+    
+    @pytest.mark.asyncio
+    async def test_concurrent_operations(self):
+        """Test multiple async operations run concurrently."""
+        import asyncio
+        
+        mock1 = AsyncMock(return_value=1)
+        mock2 = AsyncMock(return_value=2)
+        
+        results = await asyncio.gather(mock1(), mock2())
+        
+        assert results == [1, 2]
 ```
 
 ---
 
-## 5. Test Review Checklist (PR / Self-check)
+## 5. Mocking & Test Doubles
 
-Trước khi commit hoặc submit PR test, verify:
+### 5.1 Using unittest.mock
+```python
+from unittest.mock import Mock, AsyncMock, patch, MagicMock
+from dailyclip.core.protocols import IStorageService
 
-- [ ] **Naming**: Test name mô tả rõ ràng hành vi (MethodUnderTest_Scenario_Expected).
-- [ ] **AAA Pattern**: Arrange-Act-Assert rõ ràng, tách biệt.
-- [ ] **Single Concept**: Mỗi test chỉ kiểm tra một hành vi.
-- [ ] **Async**: Không dùng `.Result` / `.Wait()`, luôn async/await.
-- [ ] **Mocks**: Mock chỉ interfaces, verify số lần gọi đúng.
-- [ ] **FluentAssertions**: Assertions rõ ràng, readable (`.Should().*`).
-- [ ] **Independence**: Test không phụ thuộc thứ tự chạy, không shared state.
-- [ ] **Coverage**: Branch & exception path được test.
-- [ ] **Performance**: Test chạy < 100ms (trừ integration tests).
-- [ ] **No Brittleness**: Không over-mock, không verify implementation details.
+# ✓ Mock for synchronous function
+storage_mock = Mock(spec=IStorageService)
+storage_mock.append_clip.return_value = None
+
+# ✓ AsyncMock for async function
+search_mock = AsyncMock()
+search_mock.search.return_value = []
+
+# ✓ side_effect for multiple calls / exceptions
+storage_mock.append_clip.side_effect = [None, IOError("Fail")]
+
+# First call succeeds, second raises IOError
+storage_mock.append_clip()  # Ok
+storage_mock.append_clip()  # Raises IOError
+
+# ✓ Verify calls
+storage_mock.append_clip.assert_called_once()
+storage_mock.append_clip.assert_called_with(expected_arg)
+storage_mock.append_clip.assert_not_called()
+
+# ✓ Check call count
+assert storage_mock.append_clip.call_count == 3
+```
+
+### 5.2 Patch Decorator for External Dependencies
+```python
+from unittest.mock import patch
+import pytest
+
+class TestClipboardMonitor:
+    @patch('dailyclip.infrastructure.clipboard_monitor.pyperclip.paste')
+    def test_monitor_reads_clipboard(self, mock_paste):
+        """Test clipboard is read."""
+        mock_paste.return_value = "clipboard content"
+        
+        # Test code that calls pyperclip.paste()
+        # ...
+        
+        mock_paste.assert_called()
+```
 
 ---
 
-## 6. Running Tests & Coverage
+## 6. Test Parameterization
 
-### 6.1 Command Line
+### 6.1 Using @pytest.mark.parametrize
+```python
+import pytest
+from dailyclip.core.entities import ClipType
+
+class TestClipTypes:
+    @pytest.mark.parametrize("clip_type", [
+        ClipType.TEXT,
+        ClipType.IMAGE,
+        ClipType.HTML
+    ])
+    def test_all_clip_types_valid(self, clip_type):
+        """Test all clip types."""
+        assert clip_type in [ClipType.TEXT, ClipType.IMAGE, ClipType.HTML]
+    
+    @pytest.mark.parametrize("query,expected_count", [
+        ("python", 5),
+        ("async", 3),
+        ("test", 10),
+    ])
+    @pytest.mark.asyncio
+    async def test_search_various_queries(self, search_service, query, expected_count):
+        """Test search with various queries."""
+        # (Simplified - would need actual data)
+        results = await search_service.search(query)
+        # Check expected_count...
+```
+
+### 6.2 Using @pytest.mark.parametrize with Multiple Parameters
+```python
+@pytest.mark.parametrize("input,expected", [
+    ("", False),  # Empty string
+    (None, False),  # None value
+    ("valid", True),  # Valid input
+])
+def test_is_valid_input(input, expected):
+    assert is_valid(input) == expected
+```
+
+---
+
+## 7. Coverage Analysis
+
+### 7.1 Generate Coverage Report
 ```bash
-# Run all tests
-dotnet test
+# Generate coverage HTML report
+pytest --cov=dailyclip --cov-report=html
 
-# Run with verbose output
-dotnet test --verbosity detailed
-
-# Run specific test class
-dotnet test --filter "FullyQualifiedName~ClipItemTests"
-
-# Run and collect coverage
-dotnet test /p:CollectCoverage=true /p:CoverageFormat=opencover /p:CoverageDirectory=./coverage
-
-# Watch mode (requires extension)
-dotnet watch test
+# View coverage
+open htmlcov/index.html  # macOS
+# or
+xdg-open htmlcov/index.html  # Linux
+# or
+start htmlcov/index.html  # Windows
 ```
 
-### 6.2 Visual Studio
-- **Test Explorer**: View → Test Explorer (Ctrl+E, T).
-- **Run All**: Run All Tests button.
-- **Debug**: Right-click test → Debug.
-- **Coverage**: Help → Generate Code Coverage Results.
+### 7.2 Coverage Configuration (pyproject.toml)
+```ini
+[tool:pytest]
+addopts = 
+    --cov=dailyclip
+    --cov-report=term-missing
+    --cov-report=html
+    --cov-report=xml
+    --cov-fail-under=80  # Fail if coverage < 80%
 
-### 6.3 Coverage Report
-```bash
-# Install ReportGenerator (optional)
-dotnet tool install -g dotnet-reportgenerator-globaltool
+[coverage:run]
+omit =
+    */tests/*
+    */site-packages/*
 
-# Generate HTML report
-reportgenerator -reports:./coverage/coverage.opencover.xml -targetdir:./coverage/report
-
-# Open report
-./coverage/report/index.html
-```
-
----
-
-## 7. Advanced Topics (Optional)
-
-### 7.1 Test Fixtures (Reusable Setup)
-```csharp
-public abstract class DatabaseTestFixture : IAsyncLifetime
-{
-    private readonly DuckDBSearchService _db;
-
-    public async Task InitializeAsync()
-    {
-        _db = new DuckDBSearchService(":memory:");
-        await _db.InitializeAsync();
-    }
-
-    public async Task DisposeAsync() => await _db.DisposeAsync();
-}
-
-public class SearchServiceTests : DatabaseTestFixture
-{
-    [Fact]
-    public async Task Test1() { /* ... */ }
-}
-```
-
-### 7.2 Custom Assertions
-```csharp
-public static class AssertionExtensions
-{
-    public static void ShouldBeValidClip(this ClipItem clip)
-    {
-        clip.Should().NotBeNull();
-        clip.Timestamp.Should().NotBe(default);
-        clip.Content.Should().NotBeNullOrEmpty();
-    }
-}
-
-// Usage
-clip.ShouldBeValidClip();
-```
-
-### 7.3 Snapshot Testing (for complex objects)
-```bash
-# Nuget: Verify package
-dotnet add package Verify
-```
-
-```csharp
-[Fact]
-public async Task SearchResults_Match_KnownSnapshot()
-{
-    var results = await _service.SearchAsync("query", 10);
-    await Verify(results);
-}
+[coverage:report]
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    raise AssertionError
+    raise NotImplementedError
+    if __name__ == .__main__.:
+    if TYPE_CHECKING:
 ```
 
 ---
 
-## 8. References & Further Reading
+## 8. Best Practices Checklist
 
-- **xUnit best practices**: https://xunit.net/docs/getting-started
-- **Moq documentation**: https://github.com/devlooped/moq
-- **FluentAssertions**: https://fluentassertions.com/
-- **Unit Testing in C#** by Roy Osherove (book).
-- **Clean Architecture by Robert C. Martin** (chapter on testing).
-- Microsoft docs: https://learn.microsoft.com/en-us/dotnet/core/testing/
+- ✓ Write tests BEFORE or ALONGSIDE code (TDD mindset).
+- ✓ Keep tests simple and focused (single concept per test).
+- ✓ Use fixtures for reusable setup.
+- ✓ Mock external dependencies (storage, search, clipboard).
+- ✓ Test edge cases (empty input, None, exceptions).
+- ✓ Use `@pytest.mark.asyncio` for async tests.
+- ✓ Aim for >85% coverage (>95% for critical path).
+- ✓ Name tests clearly (describe what you're testing).
+- ✓ Use parametrize for multiple similar tests.
+- ✓ Verify calls to mocks (assert_called_once, assert_called_with).
 
 ---
 
-## 9. Kết luận
+## 9. Example: Complete Test Module
 
-Unit testing cho DailyClip giúp:
-- ✅ Phát hiện bug sớm (trong dev, không ở user).
-- ✅ Dễ refactor an toàn (test xác nhân không break logic).
-- ✅ Code được tài liệu hóa (test là ví dụ của cách dùng).
-- ✅ Design tốt hơn (testable code = loosely coupled code).
-- ✅ Confidence cao khi ship feature mới.
+```python
+# tests/test_complete_example.py
+import pytest
+from unittest.mock import AsyncMock, patch
+from pathlib import Path
+from datetime import datetime
+from dailyclip.core.entities import ClipItem, ClipType
+from dailyclip.infrastructure.clipboard_monitor import ClipboardMonitorService
 
-**Mục tiêu**: >85% coverage cho Domain + Application, >70% cho Infrastructure. Chúc bạn viết test hiệu quả! 🎯
+@pytest.fixture
+def sample_clip():
+    return ClipItem(
+        timestamp=datetime.now(),
+        content="test content",
+        clip_type=ClipType.TEXT
+    )
+
+@pytest.fixture
+def storage_mock():
+    mock = AsyncMock()
+    mock.append_clip = AsyncMock()
+    return mock
+
+@pytest.fixture
+def search_mock():
+    mock = AsyncMock()
+    mock.index_daily_data = AsyncMock()
+    return mock
+
+class TestClipboardMonitorIntegration:
+    """Integration tests for clipboard monitor."""
+    
+    @pytest.mark.asyncio
+    async def test_monitor_full_flow(self, storage_mock, search_mock, sample_clip):
+        """Test full clipboard monitoring flow."""
+        monitor = ClipboardMonitorService(storage_mock, search_mock)
+        
+        # Process clipboard
+        await monitor._process_clipboard(sample_clip.content)
+        
+        # Verify storage was called
+        storage_mock.append_clip.assert_called_once()
+        
+        # Verify search was updated
+        search_mock.index_daily_data.assert_called_once()
+    
+    @pytest.mark.asyncio
+    async def test_duplicate_skipped(self, storage_mock, search_mock):
+        """Test duplicates are skipped."""
+        monitor = ClipboardMonitorService(storage_mock, search_mock)
+        
+        await monitor._process_clipboard("duplicate")
+        await monitor._process_clipboard("duplicate")
+        
+        # Verify only called once (duplicate skipped)
+        storage_mock.append_clip.assert_called_once()
+    
+    @pytest.mark.asyncio
+    async def test_error_handling(self, storage_mock, search_mock):
+        """Test error is handled gracefully."""
+        storage_mock.append_clip.side_effect = IOError("Storage failed")
+        monitor = ClipboardMonitorService(storage_mock, search_mock)
+        
+        # Should not raise
+        try:
+            await monitor._process_clipboard("content")
+        except IOError:
+            pytest.fail("Should not raise IOError")
+```
+
+---
+
+## 10. Running Tests in CI/CD
+
+Example GitHub Actions workflow:
+```yaml
+name: Tests
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: windows-latest  # DailyClip is Windows-only
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+    
+    - name: Install dependencies
+      run: |
+        pip install -r requirements-dev.txt
+    
+    - name: Run tests
+      run: |
+        pytest --cov=dailyclip --cov-report=xml
+    
+    - name: Upload coverage
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+```
+
+---
+
+Tuân thủ các nguyên tắc này sẽ giúp code bạn testable, maintainable, và reliable!

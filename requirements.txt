@@ -1,0 +1,30 @@
+# DailyClip - Python 3.14.2 Requirements
+# Phase 1: Core Structure
+
+# GUI Framework
+PyQt6>=6.6.0
+
+# Database & Search
+duckdb>=0.9.0
+
+# Clipboard Management
+pyperclip>=1.8.2
+
+# Image Processing
+pillow>=10.0.0
+
+# Global Hotkeys
+keyboard>=0.13.5
+
+# Dependency Injection
+dependency-injector>=4.41.0
+
+# Testing Framework
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-qt>=4.2.0
+
+# Utilities
+aiofiles>=23.2.1
+pydantic>=2.5.0
+python-dateutil>=2.8.2
