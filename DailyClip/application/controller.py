@@ -21,7 +21,6 @@ from DailyClip.core.interfaces import (
     ISearchService,
     IStorageService,
 )
-from DailyClip.presentation.quick_note import QuickNoteWindow
 from DailyClip.presentation.quick_search import QuickSearchWindow
 
 logger = logging.getLogger(__name__)
@@ -55,11 +54,10 @@ class AppController(QObject):
         self._hotkey_service = hotkey_service
         self._screen_capture_service = screen_capture_service
 
-        self._quick_search_window = QuickSearchWindow(
+        self._workspace_window = QuickSearchWindow(
             search_service=self._search_service,
+            storage_service=self._storage_service,
             runtime=self._runtime,
-        )
-        self._quick_note_window = QuickNoteWindow(
             save_callback=self.queue_note_save,
             autosave_seconds=AppConfig.QUICK_NOTE_AUTOSAVE_SECONDS,
         )
@@ -101,7 +99,7 @@ class AppController(QObject):
         self._setup_tray_icon()
 
         self._started = True
-        logger.info('DailyClip started successfully.')
+        logger.info("DailyClip started successfully.")
 
     def stop(self) -> None:
         """Stop background services and release application resources."""
@@ -109,7 +107,7 @@ class AppController(QObject):
             return
 
         try:
-            self._quick_note_window.save_now()
+            self._workspace_window.save_note_now()
             if self._last_note_future:
                 self._last_note_future.result(timeout=5)
             self._clipboard_monitor.unregister_callback(self._on_clip_captured)
@@ -120,26 +118,25 @@ class AppController(QObject):
             if self._tray_icon:
                 self._tray_icon.hide()
                 self._tray_icon = None
-            self._quick_search_window.hide()
-            self._quick_note_window.hide()
+            self._workspace_window.hide()
             self._runtime.stop()
             self._started = False
-            logger.info('DailyClip stopped.')
+            logger.info("DailyClip stopped.")
 
     def show_quick_search(self) -> None:
-        """Show and focus the quick search window."""
-        self._quick_search_window.show_window()
+        """Show and focus the merged workspace on the search tab."""
+        self._workspace_window.show_search_view()
 
     def show_quick_note(self) -> None:
-        """Show and focus the daily note window."""
+        """Show and focus the merged workspace on the note tab."""
         date_str = self._today()
         note = self._runtime.submit(self._storage_service.get_note(date_str)).result(timeout=5)
         if note:
             self._note_created_at[date_str] = note.created_at
-            self._quick_note_window.set_note_content(date_str, note.content)
+            self._workspace_window.set_note_content(date_str, note.content)
         else:
-            self._quick_note_window.set_note_content(date_str, '')
-        self._quick_note_window.show_window()
+            self._workspace_window.set_note_content(date_str, "")
+        self._workspace_window.show_note_view()
 
     def take_screenshot(self) -> None:
         """Capture and persist a fullscreen screenshot."""
@@ -149,15 +146,15 @@ class AppController(QObject):
     def open_today_folder(self) -> None:
         """Open today's data folder in the OS file explorer."""
         folder = AppConfig.get_daily_dir(self._today())
-        if hasattr(os, 'startfile'):
+        if hasattr(os, "startfile"):
             os.startfile(folder)  # type: ignore[attr-defined]
         else:
-            logger.info('Today folder: %s', folder)
+            logger.info("Today folder: %s", folder)
 
     def queue_note_save(self, date_str: str, content: str) -> None:
         """Queue a note save without blocking the UI thread."""
         if len(content) > AppConfig.MAX_NOTE_SIZE:
-            logger.warning('Skipped note save because content exceeded the size limit.')
+            logger.warning("Skipped note save because content exceeded the size limit.")
             return
 
         future = self._runtime.submit(self._save_note(date_str, content))
@@ -182,7 +179,7 @@ class AppController(QObject):
         await self._storage_service.save_note(note)
         await self._search_service.index_note(note)
         self._note_created_at[date_str] = created_at
-        logger.info('Saved note for %s.', date_str)
+        logger.info("Saved note for %s.", date_str)
 
     async def _capture_screenshot(self) -> str:
         """Capture and persist a screenshot."""
@@ -193,31 +190,31 @@ class AppController(QObject):
     def _setup_tray_icon(self) -> None:
         """Create the system tray menu used for background operation."""
         if not QSystemTrayIcon.isSystemTrayAvailable():
-            logger.warning('System tray is not available on this machine.')
+            logger.warning("System tray is not available on this machine.")
             return
 
         tray_icon = QSystemTrayIcon(
             self._app.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogContentsView),
             self._app,
         )
-        tray_icon.setToolTip(f'{AppConfig.APP_NAME} {AppConfig.APP_VERSION}')
+        tray_icon.setToolTip(f"{AppConfig.APP_NAME} {AppConfig.APP_VERSION}")
 
         menu = QMenu()
-        search_action = QAction('Quick Search', tray_icon)
+        search_action = QAction("Quick Search", tray_icon)
         search_action.triggered.connect(self.show_quick_search)
         menu.addAction(search_action)
 
-        note_action = QAction('New Note', tray_icon)
+        note_action = QAction("New Note", tray_icon)
         note_action.triggered.connect(self.show_quick_note)
         menu.addAction(note_action)
 
-        folder_action = QAction('Open Today Folder', tray_icon)
+        folder_action = QAction("Open Today Folder", tray_icon)
         folder_action.triggered.connect(self.open_today_folder)
         menu.addAction(folder_action)
 
         menu.addSeparator()
 
-        exit_action = QAction('Exit', tray_icon)
+        exit_action = QAction("Exit", tray_icon)
         exit_action.triggered.connect(self._app.quit)
         menu.addAction(exit_action)
 
@@ -227,15 +224,20 @@ class AppController(QObject):
 
     def _on_clip_captured(self, clip: ClipItem) -> None:
         """Handle new clipboard content captured in the background."""
-        logger.info('Clipboard item indexed from %s', clip.timestamp.isoformat())
+        logger.info("Clipboard item indexed from %s", clip.timestamp.isoformat())
+        if clip.clip_type == "image" and self._tray_icon:
+            self._tray_icon.showMessage(
+                AppConfig.APP_NAME,
+                f"Saved clipboard image: {clip.file_path}",
+            )
 
     def _notify_screenshot_result(self, future: Future[str]) -> None:
         """Display screenshot status feedback in the tray."""
         try:
             screenshot_path = future.result()
         except Exception:
-            logger.exception('Screenshot capture failed.')
-            self.screenshot_failed.emit('Screenshot capture failed.')
+            logger.exception("Screenshot capture failed.")
+            self.screenshot_failed.emit("Screenshot capture failed.")
             return
 
         self.screenshot_saved.emit(screenshot_path)
@@ -246,19 +248,19 @@ class AppController(QObject):
         try:
             future.result()
         except Exception:
-            logger.exception('Background operation failed.')
+            logger.exception("Background operation failed.")
 
     @staticmethod
     def _today() -> str:
         """Return today's date string."""
-        return datetime.now().strftime('%Y-%m-%d')
+        return datetime.now().strftime("%Y-%m-%d")
 
     def _show_screenshot_saved(self, screenshot_path: str) -> None:
         """Show a tray notification for a saved screenshot."""
         if self._tray_icon:
             self._tray_icon.showMessage(
                 AppConfig.APP_NAME,
-                f'Saved screenshot: {screenshot_path}',
+                f"Saved screenshot: {screenshot_path}",
             )
 
     def _show_screenshot_failed(self, message: str) -> None:

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip('PyQt6')
+pytest.importorskip("PyQt6")
 
 from PyQt6.QtWidgets import QApplication
 
@@ -28,10 +28,13 @@ class DummyStorageService:
         return None
 
     async def save_note(self, note):  # noqa: ANN001
-        return Path(f'{note.date}.md')
+        return Path(f"{note.date}.md")
 
     async def save_screenshot(self, image_data: bytes, captured_at=None):  # noqa: ANN001, ARG002
-        return Path('screen.png')
+        return Path("screen.png")
+
+    async def list_browse_entries(self, limit: int = 100):  # noqa: ARG002
+        return []
 
 
 class DummySearchService:
@@ -95,7 +98,7 @@ class DummyScreenCaptureService:
     """Minimal screenshot stub for controller tests."""
 
     async def capture_screenshot(self) -> bytes:
-        return b'image'
+        return b"image"
 
 
 @pytest.fixture
@@ -135,3 +138,23 @@ def test_controller_start_and_stop_wire_services(qapp):
 
     assert clipboard_monitor.started is False
     assert hotkey_service.listening is False
+
+
+def test_controller_opens_note_tab_in_merged_workspace(qapp):
+    """Showing quick note should switch the merged workspace to the note tab."""
+    controller = AppController(
+        app=qapp,
+        runtime=AsyncRuntime(),
+        storage_service=DummyStorageService(),
+        search_service=DummySearchService(),
+        clipboard_monitor=DummyClipboardMonitor(),
+        hotkey_service=DummyHotkeyService(),
+        screen_capture_service=DummyScreenCaptureService(),
+    )
+
+    controller._runtime.start()
+    try:
+        controller.show_quick_note()
+        assert controller._workspace_window._tabs.currentWidget() is controller._workspace_window._note_tab
+    finally:
+        controller._runtime.stop()

@@ -1,7 +1,7 @@
 """Core exports for DailyClip."""
 
 from .config import AppConfig
-from .entities import ClipItem, DailyNote, SearchResult
+from .entities import BrowseEntry, ClipItem, DailyNote, SearchResult
 from .exceptions import (
     ClipboardMonitorError,
     DailyClipError,
@@ -18,18 +18,19 @@ from .interfaces import (
 )
 
 __all__ = [
-    'AppConfig',
-    'ClipItem',
-    'ClipboardMonitorError',
-    'DailyClipError',
-    'DailyNote',
-    'IClipboardMonitor',
-    'IHotkeyService',
-    'IScreenCaptureService',
-    'ISearchService',
-    'IStorageService',
-    'ScreenCaptureError',
-    'SearchIndexError',
-    'SearchResult',
-    'StorageError',
+    "AppConfig",
+    "BrowseEntry",
+    "ClipItem",
+    "ClipboardMonitorError",
+    "DailyClipError",
+    "DailyNote",
+    "IClipboardMonitor",
+    "IHotkeyService",
+    "IScreenCaptureService",
+    "ISearchService",
+    "IStorageService",
+    "ScreenCaptureError",
+    "SearchIndexError",
+    "SearchResult",
+    "StorageError",
 ]

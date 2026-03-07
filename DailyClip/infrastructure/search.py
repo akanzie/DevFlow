@@ -6,7 +6,6 @@ import asyncio
 import hashlib
 import json
 import logging
-from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
@@ -31,7 +30,7 @@ class DuckDBSearchService(ISearchService):
         """Rebuild the unified index from persisted content."""
         await asyncio.to_thread(self._initialize_database)
         await asyncio.to_thread(self._rebuild_index_sync)
-        logger.info('Rebuilt search index at %s', self.db_path)
+        logger.info("Rebuilt search index at %s", self.db_path)
 
     async def search(self, query: str, limit: int = 50) -> list[SearchResult]:
         """Query the unified index using case-insensitive substring matching."""
@@ -72,25 +71,25 @@ class DuckDBSearchService(ISearchService):
                 """
             )
             connection.execute(
-                'CREATE INDEX IF NOT EXISTS idx_search_entries_timestamp '
-                'ON search_entries(timestamp)'
+                "CREATE INDEX IF NOT EXISTS idx_search_entries_timestamp "
+                "ON search_entries(timestamp)"
             )
             connection.execute(
-                'CREATE INDEX IF NOT EXISTS idx_search_entries_date '
-                'ON search_entries(date_str)'
+                "CREATE INDEX IF NOT EXISTS idx_search_entries_date "
+                "ON search_entries(date_str)"
             )
 
     def _rebuild_index_sync(self) -> None:
         """Synchronously rebuild the index from disk."""
         with duckdb.connect(str(self.db_path)) as connection:
-            connection.execute('DELETE FROM search_entries')
+            connection.execute("DELETE FROM search_entries")
 
             for daily_dir in sorted(self.storage_path.iterdir()):
                 if not daily_dir.is_dir() or not self._is_date_folder(daily_dir.name):
                     continue
 
                 clips_dir = daily_dir / AppConfig.CLIPPINGS_DIRNAME
-                for clip_file in sorted(clips_dir.glob('*.jsonl')):
+                for clip_file in sorted(clips_dir.glob("*.jsonl")):
                     self._index_clip_file(connection, clip_file)
 
                 note_path = (
@@ -121,10 +120,10 @@ class DuckDBSearchService(ISearchService):
                     ORDER BY timestamp DESC
                     LIMIT ?
                     """,
-                    [f'%{query.lower()}%', limit],
+                    [f"%{query.lower()}%", limit],
                 ).fetchall()
         except duckdb.Error as exc:
-            raise SearchIndexError('Failed to execute search query.') from exc
+            raise SearchIndexError("Failed to execute search query.") from exc
 
         return [
             SearchResult(
@@ -162,9 +161,9 @@ class DuckDBSearchService(ISearchService):
                     """,
                     [
                         entry_id,
-                        'clip',
+                        "clip",
                         clip.timestamp,
-                        clip.timestamp.strftime('%Y-%m-%d'),
+                        clip.timestamp.strftime("%Y-%m-%d"),
                         clip.content,
                         preview,
                         str(clip.file_path) if clip.file_path else None,
@@ -173,7 +172,7 @@ class DuckDBSearchService(ISearchService):
                     ],
                 )
             except duckdb.Error as exc:
-                raise SearchIndexError('Failed to index clip entry.') from exc
+                raise SearchIndexError("Failed to index clip entry.") from exc
 
     def _upsert_note_sync(self, note: DailyNote) -> None:
         """Synchronously upsert a note entry."""
@@ -200,8 +199,8 @@ class DuckDBSearchService(ISearchService):
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     [
-                        f'note:{note.date}',
-                        'note',
+                        f"note:{note.date}",
+                        "note",
                         note.updated_at,
                         note.date,
                         note.content,
@@ -212,18 +211,18 @@ class DuckDBSearchService(ISearchService):
                     ],
                 )
             except duckdb.Error as exc:
-                raise SearchIndexError('Failed to index note entry.') from exc
+                raise SearchIndexError("Failed to index note entry.") from exc
 
     def _index_clip_file(self, connection: duckdb.DuckDBPyConnection, clip_file: Path) -> None:
         """Read a clip file and upsert all contained entries."""
         try:
-            with clip_file.open('r', encoding='utf-8') as handle:
+            with clip_file.open("r", encoding="utf-8") as handle:
                 for raw_line in handle:
                     line = raw_line.strip()
                     if not line:
                         continue
-                    data = json.loads(line)
-                    clip = replace(ClipItem.from_dict(data), file_path=clip_file)
+                    clip = ClipItem.from_dict(json.loads(line))
+                    persisted_path = clip.file_path or clip_file
                     connection.execute(
                         """
                         INSERT OR REPLACE INTO search_entries (
@@ -240,18 +239,18 @@ class DuckDBSearchService(ISearchService):
                         """,
                         [
                             self._build_clip_entry_id(clip),
-                            'clip',
+                            "clip",
                             clip.timestamp,
-                            clip.timestamp.strftime('%Y-%m-%d'),
+                            clip.timestamp.strftime("%Y-%m-%d"),
                             clip.content,
                             self._build_preview(clip.content),
-                            str(clip_file),
+                            str(persisted_path),
                             clip.source_url,
                             1.0,
                         ],
                     )
         except (OSError, ValueError, json.JSONDecodeError, duckdb.Error) as exc:
-            logger.warning('Skipping clip file %s during reindex: %s', clip_file, exc)
+            logger.warning("Skipping clip file %s during reindex: %s", clip_file, exc)
 
     def _index_note_file(
         self,
@@ -261,7 +260,7 @@ class DuckDBSearchService(ISearchService):
     ) -> None:
         """Read a note file and upsert its single entry."""
         try:
-            content = note_path.read_text(encoding='utf-8')
+            content = note_path.read_text(encoding="utf-8")
             stat = note_path.stat()
             timestamp = datetime.fromtimestamp(stat.st_mtime)
             connection.execute(
@@ -279,8 +278,8 @@ class DuckDBSearchService(ISearchService):
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
-                    f'note:{date_str}',
-                    'note',
+                    f"note:{date_str}",
+                    "note",
                     timestamp,
                     date_str,
                     content,
@@ -291,21 +290,21 @@ class DuckDBSearchService(ISearchService):
                 ],
             )
         except (OSError, duckdb.Error) as exc:
-            logger.warning('Skipping note file %s during reindex: %s', note_path, exc)
+            logger.warning("Skipping note file %s during reindex: %s", note_path, exc)
 
     @staticmethod
     def _build_preview(content: str, limit: int = 120) -> str:
         """Create a compact preview string for UI rendering."""
-        normalized = ' '.join(content.split())
+        normalized = " ".join(content.split())
         if len(normalized) <= limit:
             return normalized
-        return f'{normalized[:limit].rstrip()}...'
+        return f"{normalized[:limit].rstrip()}..."
 
     @staticmethod
     def _is_date_folder(name: str) -> bool:
         """Return whether a folder name matches YYYY-MM-DD."""
         try:
-            datetime.strptime(name, '%Y-%m-%d')
+            datetime.strptime(name, "%Y-%m-%d")
         except ValueError:
             return False
         return True
@@ -314,6 +313,6 @@ class DuckDBSearchService(ISearchService):
     def _build_clip_entry_id(clip: ClipItem) -> str:
         """Build a stable entry identifier for a clip."""
         digest = hashlib.sha1(
-            f'{clip.timestamp.isoformat()}:{clip.content}'.encode('utf-8')
+            f"{clip.timestamp.isoformat()}:{clip.content}".encode("utf-8")
         ).hexdigest()
-        return f'clip:{digest}'
+        return f"clip:{digest}"

@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Protocol
 
-from .entities import ClipItem, DailyNote, SearchResult
+from .entities import BrowseEntry, ClipItem, DailyNote, SearchResult
 
 ClipCallback = Callable[[ClipItem], None]
 HotkeyCallback = Callable[[], None]
@@ -37,6 +37,9 @@ class IStorageService(Protocol):
         captured_at: datetime | None = None,
     ) -> Path:
         """Persist a screenshot using the MVP naming convention."""
+
+    async def list_browse_entries(self, limit: int = 100) -> list[BrowseEntry]:
+        """Return recent folders and files for browse mode."""
 
 
 class ISearchService(Protocol):
