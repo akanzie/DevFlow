@@ -1,115 +1,67 @@
-"""
-Global Hotkey Service for DailyClip
-Handles system-wide hotkeys (Alt+Space, Alt+N, Alt+S)
-"""
+"""Global hotkey implementation for DailyClip."""
+
+from __future__ import annotations
+
+import logging
 
 import keyboard
-import threading
-from typing import Callable, Optional
-from PyQt6.QtCore import QObject, pyqtSignal, QTimer
 
-from core.config import AppConfig
+from DailyClip.core.interfaces import HotkeyCallback, IHotkeyService
 
-class GlobalHotkeyService(QObject):
-    """Global hotkey manager using keyboard library"""
-    
-    # Signals for hotkey events
-    quick_search_triggered = pyqtSignal()
-    new_note_triggered = pyqtSignal()
-    screenshot_triggered = pyqtSignal()
-    
-    def __init__(self):
-        super().__init__()
-        self._registered_hotkeys = {}
-        self._listener_thread: Optional[threading.Thread] = None
-        self._running = False
-        
-    def register_default_hotkeys(self):
-        """Register default DailyClip hotkeys"""
-        self.register_hotkey(AppConfig.HOTKEY_QUICK_SEARCH, self._on_quick_search)
-        self.register_hotkey(AppConfig.HOTKEY_NEW_NOTE, self._on_new_note)
-        self.register_hotkey(AppConfig.HOTKEY_SCREENSHOT, self._on_screenshot)
-        
-        print(f"🔥 Registered hotkeys:")
-        print(f"   {AppConfig.HOTKEY_QUICK_SEARCH} - Quick Search")
-        print(f"   {AppConfig.HOTKEY_NEW_NOTE} - New Note")
-        print(f"   {AppConfig.HOTKEY_SCREENSHOT} - Screenshot")
-    
-    def register_hotkey(self, key_combo: str, callback: Callable[[], None]) -> bool:
-        """Register a global hotkey"""
-        try:
-            keyboard.add_hotkey(key_combo, callback)
-            self._registered_hotkeys[key_combo] = callback
-            return True
-        except Exception as e:
-            print(f"❌ Failed to register hotkey {key_combo}: {e}")
-            return False
-    
-    def unregister_hotkey(self, key_combo: str) -> bool:
-        """Unregister a global hotkey"""
-        try:
-            keyboard.remove_hotkey(key_combo)
-            self._registered_hotkeys.pop(key_combo, None)
-            return True
-        except Exception as e:
-            print(f"❌ Failed to unregister hotkey {key_combo}: {e}")
-            return False
-    
-    def start_listener(self):
-        """Start hotkey listener in background thread"""
-        if self._running:
+logger = logging.getLogger(__name__)
+
+
+class GlobalHotkeyService(IHotkeyService):
+    """Register and manage system-wide hotkeys using the keyboard package."""
+
+    def __init__(self) -> None:
+        self._callbacks: dict[str, HotkeyCallback] = {}
+        self._hotkey_refs: dict[str, int] = {}
+        self._listening = False
+
+    def register_hotkey(self, key_combo: str, callback: HotkeyCallback) -> None:
+        """Register a hotkey callback and activate it immediately if needed."""
+        self._callbacks[key_combo] = callback
+        if self._listening:
+            self._activate_hotkey(key_combo, callback)
+
+    def unregister_hotkey(self, key_combo: str) -> None:
+        """Unregister a configured hotkey."""
+        hotkey_ref = self._hotkey_refs.pop(key_combo, None)
+        if hotkey_ref is not None:
+            keyboard.remove_hotkey(hotkey_ref)
+        self._callbacks.pop(key_combo, None)
+
+    def start_listener(self) -> None:
+        """Activate all configured hotkeys."""
+        if self._listening:
             return
-        
-        self._running = True
-        self._listener_thread = threading.Thread(target=self._listener_loop, daemon=True)
-        self._listener_thread.start()
-        print("🔥 Global hotkey listener started")
-    
-    def stop_listener(self):
-        """Stop hotkey listener"""
-        if not self._running:
+
+        self._listening = True
+        for key_combo, callback in self._callbacks.items():
+            self._activate_hotkey(key_combo, callback)
+        logger.info('Global hotkey listener started.')
+
+    def stop_listener(self) -> None:
+        """Deactivate all configured hotkeys."""
+        if not self._listening:
             return
-        
-        self._running = False
-        keyboard.unhook_all()
-        
-        if self._listener_thread and self._listener_thread.is_alive():
-            self._listener_thread.join(timeout=1.0)
-        
-        print("⏹️ Global hotkey listener stopped")
-    
-    def _listener_loop(self):
-        """Background loop for hotkey listening"""
+
+        for hotkey_ref in self._hotkey_refs.values():
+            keyboard.remove_hotkey(hotkey_ref)
+        self._hotkey_refs.clear()
+        self._listening = False
+        logger.info('Global hotkey listener stopped.')
+
+    def _activate_hotkey(self, key_combo: str, callback: HotkeyCallback) -> None:
+        """Register a hotkey with the keyboard backend."""
         try:
-            # This will block until keyboard.unhook_all() is called
-            keyboard.wait()
-        except Exception as e:
-            print(f"❌ Hotkey listener error: {e}")
-    
-    def _on_quick_search(self):
-        """Handle quick search hotkey"""
-        print("🔍 Quick search hotkey triggered")
-        # Use QTimer to emit signal in main thread
-        QTimer.singleShot(0, self.quick_search_triggered.emit)
-    
-    def _on_new_note(self):
-        """Handle new note hotkey"""
-        print("📝 New note hotkey triggered")
-        QTimer.singleShot(0, self.new_note_triggered.emit)
-    
-    def _on_screenshot(self):
-        """Handle screenshot hotkey"""
-        print("📸 Screenshot hotkey triggered")
-        QTimer.singleShot(0, self.screenshot_triggered.emit)
-    
-    def is_listening(self) -> bool:
-        """Check if hotkey listener is running"""
-        return self._running
-    
-    def get_registered_hotkeys(self) -> dict:
-        """Get all registered hotkeys"""
-        return self._registered_hotkeys.copy()
-    
-    def __del__(self):
-        """Cleanup when service is destroyed"""
-        self.stop_listener()
+            hotkey_ref = keyboard.add_hotkey(key_combo, callback, suppress=False)
+        except Exception as exc:
+            logger.warning('Unable to register hotkey %s: %s', key_combo, exc)
+            return
+
+        previous_ref = self._hotkey_refs.get(key_combo)
+        if previous_ref is not None and previous_ref != hotkey_ref:
+            keyboard.remove_hotkey(previous_ref)
+        self._hotkey_refs[key_combo] = hotkey_ref

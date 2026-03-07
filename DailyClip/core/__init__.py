@@ -1,26 +1,35 @@
-"""
-DailyClip Core Module
-Domain entities, interfaces, and configuration
-"""
+"""Core exports for DailyClip."""
 
-from .entities import ClipItem, SearchResult, DailyNote
+from .config import AppConfig
+from .entities import ClipItem, DailyNote, SearchResult
+from .exceptions import (
+    ClipboardMonitorError,
+    DailyClipError,
+    ScreenCaptureError,
+    SearchIndexError,
+    StorageError,
+)
 from .interfaces import (
-    IStorageService,
-    ISearchService, 
     IClipboardMonitor,
     IHotkeyService,
-    IScreenCaptureService
+    IScreenCaptureService,
+    ISearchService,
+    IStorageService,
 )
-from .config import AppConfig
 
 __all__ = [
-    "ClipItem",
-    "SearchResult", 
-    "DailyNote",
-    "IStorageService",
-    "ISearchService",
-    "IClipboardMonitor",
-    "IHotkeyService",
-    "IScreenCaptureService",
-    "AppConfig"
+    'AppConfig',
+    'ClipItem',
+    'ClipboardMonitorError',
+    'DailyClipError',
+    'DailyNote',
+    'IClipboardMonitor',
+    'IHotkeyService',
+    'IScreenCaptureService',
+    'ISearchService',
+    'IStorageService',
+    'ScreenCaptureError',
+    'SearchIndexError',
+    'SearchResult',
+    'StorageError',
 ]

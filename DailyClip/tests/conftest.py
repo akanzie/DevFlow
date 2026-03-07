@@ -1,47 +1,42 @@
-"""
-Pytest configuration for DailyClip
-"""
+"""Pytest fixtures for DailyClip."""
+
+from __future__ import annotations
+
+from datetime import datetime
+from pathlib import Path
 
 import pytest
-import tempfile
-import shutil
-from pathlib import Path
-from datetime import datetime
 
-import sys
-sys.path.insert(0, str(Path(__file__).parent.parent))
-from core.entities import ClipItem, DailyNote
+from DailyClip.core.entities import ClipItem, DailyNote
+
 
 @pytest.fixture
-def temp_data_dir():
-    """Create temporary data directory for testing"""
-    temp_dir = Path(tempfile.mkdtemp())
-    yield temp_dir
-    shutil.rmtree(temp_dir)
+def temp_data_dir(tmp_path: Path) -> Path:
+    """Provide a temporary data directory."""
+    return tmp_path / 'dailyclip-data'
+
 
 @pytest.fixture
-def sample_clip():
-    """Sample clip item for testing"""
+def sample_timestamp() -> datetime:
+    """Provide a stable timestamp for tests."""
+    return datetime(2026, 3, 7, 9, 30, 5)
+
+
+@pytest.fixture
+def sample_clip(sample_timestamp: datetime) -> ClipItem:
+    """Provide a stable clip item."""
     return ClipItem.create_text(
-        content="Test clipboard content",
-        source_url="https://example.com"
+        content='Test clipboard content https://example.com',
+        source_url='https://example.com',
+        timestamp=sample_timestamp,
     )
 
+
 @pytest.fixture
-def sample_note():
-    """Sample daily note for testing"""
+def sample_note() -> DailyNote:
+    """Provide a stable daily note."""
     return DailyNote.create(
-        date=datetime.now().strftime("%Y-%m-%d"),
-        content="# Daily Note\n\nTest content"
-    )
-
-@pytest.fixture
-def sample_image_clip():
-    """Sample image clip for testing"""
-    return ClipItem(
-        timestamp=datetime.now(),
-        content="base64_image_data",
-        clip_type="image",
-        format="plain",
-        file_path=Path("test_image.png")
+        date='2026-03-07',
+        content='# Daily Note\n\nTest content',
+        timestamp=datetime(2026, 3, 7, 9, 45, 0),
     )

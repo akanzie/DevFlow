@@ -1,56 +1,44 @@
-"""
-Dependency injection container for DailyClip
-Clean Architecture with dependency injection
-"""
+"""Dependency injection container for DailyClip."""
+
+from __future__ import annotations
 
 from dependency_injector import containers, providers
-from pathlib import Path
 
-import sys
-sys.path.insert(0, str(Path(__file__).parent))
-from core.interfaces import (
-    IStorageService,
-    ISearchService, 
-    IClipboardMonitor,
-    IHotkeyService,
-    IScreenCaptureService
-)
-from infrastructure.storage import FileStorageService
-from infrastructure.search import DuckDBSearchService
-from infrastructure.clipboard import ClipboardMonitorService
-from infrastructure.hotkey import GlobalHotkeyService
+from DailyClip.common.async_runtime import AsyncRuntime
+from DailyClip.core.config import AppConfig
+from DailyClip.infrastructure.clipboard import ClipboardMonitorService
+from DailyClip.infrastructure.hotkey import GlobalHotkeyService
+from DailyClip.infrastructure.screen_capture import ScreenCaptureService
+from DailyClip.infrastructure.search import DuckDBSearchService
+from DailyClip.infrastructure.storage import FileStorageService
+
 
 class Container(containers.DeclarativeContainer):
-    """Dependency injection container"""
-    
-    # Configuration
+    """Declarative container for core application services."""
+
     config = providers.Configuration()
-    
-    # Services
-    storage_service = providers.Factory(
+
+    async_runtime = providers.Singleton(AsyncRuntime)
+    storage_service = providers.Singleton(
         FileStorageService,
-        data_dir=Path(config.data_dir) if config.data_dir else None
+        data_dir=config.data_dir,
     )
-    
-    # Services
-    search_service = providers.Factory(
+    search_service = providers.Singleton(
         DuckDBSearchService,
-        storage_path=Path(config.data_dir) if config.data_dir else None
+        storage_path=config.data_dir,
     )
-    
-    clipboard_monitor = providers.Factory(
+    clipboard_monitor = providers.Singleton(
         ClipboardMonitorService,
         storage_service=storage_service,
-        search_service=search_service
+        search_service=search_service,
+        runtime=async_runtime,
     )
-    
-    hotkey_service = providers.Factory(
-        GlobalHotkeyService
-    )
-    
-    screen_capture_service = providers.Factory(
-        object  # Will be replaced with actual implementation
-    )
+    hotkey_service = providers.Singleton(GlobalHotkeyService)
+    screen_capture_service = providers.Singleton(ScreenCaptureService)
 
-# Global container instance
-container = Container()
+
+def build_container() -> Container:
+    """Build and configure the default application container."""
+    container = Container()
+    container.config.from_dict({'data_dir': str(AppConfig.get_data_dir())})
+    return container

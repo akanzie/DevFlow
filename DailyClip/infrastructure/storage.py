@@ -1,128 +1,170 @@
-"""
-Storage service implementation for DailyClip
-Handles file-based persistence with JSONL format
-"""
+"""File storage implementation for DailyClip."""
 
+from __future__ import annotations
+
+import asyncio
 import json
-import aiofiles
-from pathlib import Path
-from typing import List, Optional
+import logging
 from datetime import datetime
-import os
+from pathlib import Path
 
-import sys
-sys.path.insert(0, str(Path(__file__).parent.parent))
-from core.entities import ClipItem, DailyNote
-from core.interfaces import IStorageService
-from core.config import AppConfig
+from DailyClip.core.config import AppConfig
+from DailyClip.core.entities import ClipItem, DailyNote
+from DailyClip.core.exceptions import StorageError
+from DailyClip.core.interfaces import IStorageService
+
+logger = logging.getLogger(__name__)
+
 
 class FileStorageService(IStorageService):
-    """File-based storage implementation using JSONL format"""
-    
-    def __init__(self, data_dir: Optional[Path] = None):
-        self.data_dir = data_dir or AppConfig.get_data_dir()
-        self._ensure_data_dir()
-    
-    def _ensure_data_dir(self) -> None:
-        """Ensure data directory exists"""
+    """Persist clips, notes, and screenshots using the SRS folder layout."""
+
+    def __init__(self, data_dir: str | Path | None = None) -> None:
+        self.data_dir = Path(data_dir) if data_dir else AppConfig.get_data_dir()
         self.data_dir.mkdir(parents=True, exist_ok=True)
-    
+
     async def create_daily_folder(self, date_str: str) -> Path:
-        """Create daily folder structure"""
+        """Create the standard folder structure for a given day."""
         daily_dir = self.data_dir / date_str
-        
-        # Create subdirectories
-        (daily_dir / "clippings").mkdir(parents=True, exist_ok=True)
-        (daily_dir / "images").mkdir(parents=True, exist_ok=True)
-        (daily_dir / "notes").mkdir(parents=True, exist_ok=True)
-        (daily_dir / "index").mkdir(parents=True, exist_ok=True)
-        
+        await asyncio.to_thread(self._create_daily_folder_sync, daily_dir)
         return daily_dir
-    
-    async def append_clip(self, clip: ClipItem) -> None:
-        """Append clip to daily JSONL file"""
-        date_str = clip.timestamp.strftime("%Y-%m-%d")
-        daily_dir = await self.create_daily_folder(date_str)
-        
-        clips_file = daily_dir / "clippings" / AppConfig.CLIPS_FILENAME
-        
-        # Append to JSONL file
-        async with aiofiles.open(clips_file, 'a', encoding='utf-8') as f:
-            json_line = json.dumps(clip.to_dict(), ensure_ascii=False)
-            await f.write(json_line + '\n')
-    
-    async def get_clips_for_date(self, date_str: str) -> List[ClipItem]:
-        """Get all clips for specific date"""
-        daily_dir = self.data_dir / date_str
-        clips_file = daily_dir / "clippings" / AppConfig.CLIPS_FILENAME
-        
-        if not clips_file.exists():
+
+    async def append_clip(self, clip: ClipItem) -> Path:
+        """Append a clip to its per-second JSONL file."""
+        clips_path = await self._get_clip_path(clip.timestamp)
+        payload = json.dumps(clip.to_dict(), ensure_ascii=False)
+        await asyncio.to_thread(self._append_text_line, clips_path, payload)
+        logger.info('Persisted clip to %s', clips_path)
+        return clips_path
+
+    async def get_clips_for_date(self, date_str: str) -> list[ClipItem]:
+        """Load all clips for a specific date."""
+        daily_dir = self.data_dir / date_str / AppConfig.CLIPPINGS_DIRNAME
+        if not daily_dir.exists():
             return []
-        
-        clips = []
-        async with aiofiles.open(clips_file, 'r', encoding='utf-8') as f:
-            async for line in f:
-                line = line.strip()
-                if line:
-                    try:
-                        data = json.loads(line)
-                        clip = ClipItem.from_dict(data)
-                        clips.append(clip)
-                    except (json.JSONDecodeError, KeyError) as e:
-                        # Log error but continue processing
-                        print(f"Error parsing clip: {e}")
-                        continue
-        
-        return clips
-    
-    async def save_note(self, note: DailyNote) -> None:
-        """Save daily note"""
-        daily_dir = await self.create_daily_folder(note.date)
-        notes_dir = daily_dir / "notes"
-        
-        note_filename = AppConfig.NOTES_FILENAME.format(date=note.date)
-        note_file = notes_dir / note_filename
-        
-        async with aiofiles.open(note_file, 'w', encoding='utf-8') as f:
-            await f.write(note.content)
-    
-    async def get_note(self, date_str: str) -> Optional[DailyNote]:
-        """Get daily note"""
-        daily_dir = self.data_dir / date_str
-        notes_dir = daily_dir / "notes"
-        
-        note_filename = AppConfig.NOTES_FILENAME.format(date=date_str)
-        note_file = notes_dir / note_filename
-        
-        if not note_file.exists():
+
+        files = sorted(daily_dir.glob('*.jsonl'))
+        return await asyncio.to_thread(self._read_clip_files, files)
+
+    async def save_note(self, note: DailyNote) -> Path:
+        """Persist the note for the provided date."""
+        note_path = await self._get_note_path(note.date)
+        await asyncio.to_thread(self._write_text, note_path, note.content)
+        logger.info('Persisted note to %s', note_path)
+        return note_path
+
+    async def get_note(self, date_str: str) -> DailyNote | None:
+        """Load a daily note when it exists."""
+        note_path = await self._get_note_path(date_str)
+        if not note_path.exists():
             return None
-        
-        async with aiofiles.open(note_file, 'r', encoding='utf-8') as f:
-            content = await f.read()
-        
-        file_stat = os.stat(note_file)
-        created_at = datetime.fromtimestamp(file_stat.st_ctime)
-        updated_at = datetime.fromtimestamp(file_stat.st_mtime)
-        
+
+        return await asyncio.to_thread(self._read_note, note_path, date_str)
+
+    async def save_screenshot(
+        self,
+        image_data: bytes,
+        captured_at: datetime | None = None,
+    ) -> Path:
+        """Persist a screenshot using the MVP filename convention."""
+        timestamp = captured_at or datetime.now()
+        daily_dir = await self.create_daily_folder(timestamp.strftime('%Y-%m-%d'))
+        images_dir = daily_dir / AppConfig.IMAGES_DIRNAME
+        image_path = await asyncio.to_thread(
+            self._ensure_unique_path,
+            images_dir / AppConfig.get_screenshot_filename(timestamp),
+        )
+        await asyncio.to_thread(self._write_bytes, image_path, image_data)
+        logger.info('Persisted screenshot to %s', image_path)
+        return image_path
+
+    async def _get_clip_path(self, timestamp: datetime) -> Path:
+        """Resolve the clip file path for a timestamp."""
+        daily_dir = await self.create_daily_folder(timestamp.strftime('%Y-%m-%d'))
+        return daily_dir / AppConfig.CLIPPINGS_DIRNAME / AppConfig.get_clip_filename(timestamp)
+
+    async def _get_note_path(self, date_str: str) -> Path:
+        """Resolve the note file path for a date."""
+        daily_dir = await self.create_daily_folder(date_str)
+        return daily_dir / AppConfig.NOTES_DIRNAME / AppConfig.get_note_filename(date_str)
+
+    @staticmethod
+    def _create_daily_folder_sync(daily_dir: Path) -> None:
+        """Synchronously create the daily directory structure."""
+        (daily_dir / AppConfig.CLIPPINGS_DIRNAME).mkdir(parents=True, exist_ok=True)
+        (daily_dir / AppConfig.IMAGES_DIRNAME).mkdir(parents=True, exist_ok=True)
+        (daily_dir / AppConfig.NOTES_DIRNAME).mkdir(parents=True, exist_ok=True)
+
+    @staticmethod
+    def _append_text_line(path: Path, payload: str) -> None:
+        """Append a single line to a text file."""
+        try:
+            with path.open('a', encoding='utf-8', newline='\n') as handle:
+                handle.write(payload)
+                handle.write('\n')
+        except OSError as exc:
+            raise StorageError(f'Unable to append clip to {path}.') from exc
+
+    @staticmethod
+    def _write_text(path: Path, content: str) -> None:
+        """Write text content to disk."""
+        try:
+            path.write_text(content, encoding='utf-8', newline='\n')
+        except OSError as exc:
+            raise StorageError(f'Unable to write text file {path}.') from exc
+
+    @staticmethod
+    def _write_bytes(path: Path, content: bytes) -> None:
+        """Write binary content to disk."""
+        try:
+            path.write_bytes(content)
+        except OSError as exc:
+            raise StorageError(f'Unable to write binary file {path}.') from exc
+
+    @staticmethod
+    def _read_note(path: Path, date_str: str) -> DailyNote:
+        """Read a note file and reconstruct metadata from filesystem timestamps."""
+        try:
+            content = path.read_text(encoding='utf-8')
+        except OSError as exc:
+            raise StorageError(f'Unable to read note file {path}.') from exc
+
+        stat = path.stat()
         return DailyNote(
             date=date_str,
             content=content,
-            created_at=created_at,
-            updated_at=updated_at
+            created_at=datetime.fromtimestamp(stat.st_ctime),
+            updated_at=datetime.fromtimestamp(stat.st_mtime),
         )
-    
-    async def save_screenshot(self, image_data: bytes) -> Path:
-        """Save screenshot and return file path"""
-        date_str = datetime.now().strftime("%Y-%m-%d")
-        daily_dir = await self.create_daily_folder(date_str)
-        images_dir = daily_dir / "images"
-        
-        # Generate filename with timestamp
-        timestamp = datetime.now().strftime("%H-%M-%S-%f")[:-3]
-        filename = f"{AppConfig.SCREENSHOT_PREFIX}{timestamp}.png"
-        image_file = images_dir / filename
-        
-        async with aiofiles.open(image_file, 'wb') as f:
-            await f.write(image_data)
-        
-        return image_file
+
+    @staticmethod
+    def _read_clip_files(files: list[Path]) -> list[ClipItem]:
+        """Read and deserialize clips from multiple JSONL files."""
+        clips: list[ClipItem] = []
+        for file_path in files:
+            try:
+                with file_path.open('r', encoding='utf-8') as handle:
+                    for raw_line in handle:
+                        line = raw_line.strip()
+                        if not line:
+                            continue
+                        data = json.loads(line)
+                        clip = ClipItem.from_dict(data)
+                        clips.append(clip)
+            except (OSError, json.JSONDecodeError, KeyError, ValueError) as exc:
+                logger.warning('Skipping invalid clip file %s: %s', file_path, exc)
+        clips.sort(key=lambda item: item.timestamp)
+        return clips
+
+    @staticmethod
+    def _ensure_unique_path(path: Path) -> Path:
+        """Return a unique path by appending a numeric suffix if required."""
+        if not path.exists():
+            return path
+
+        index = 1
+        while True:
+            candidate = path.with_name(f'{path.stem}_{index}{path.suffix}')
+            if not candidate.exists():
+                return candidate
+            index += 1

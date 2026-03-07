@@ -1,33 +1,36 @@
-# DailyClip - Python Implementation
-# Phase 1: Core Structure
+# DailyClip
+
+Windows-first MVP for local clipboard capture, quick notes, screenshots, and search.
 
 ## Project Structure
-dailyclip/
-├── core/
-│   ├── __init__.py
-│   ├── entities.py      # Domain entities
-│   ├── interfaces.py    # Service protocols
-│   └── config.py        # App configuration
-├── infrastructure/
-│   ├── __init__.py
-│   ├── storage.py       # File storage implementation
-│   ├── search.py        # DuckDB search implementation
-│   ├── clipboard.py     # Clipboard monitoring
-│   └── hotkey.py        # Global hotkey service
-├── presentation/
-│   ├── __init__.py
-│   ├── main_window.py   # PyQt6 main window
-│   └── tray_icon.py     # System tray
-├── tests/
-│   ├── __init__.py
-│   ├── test_entities.py
-│   ├── test_storage.py
-│   └── conftest.py      # Pytest configuration
-├── main.py              # Application entry point
-├── container.py         # Dependency injection container
-└── requirements.txt
 
-## Setup Instructions
-1. Install Python 3.14.2
-2. pip install -r requirements.txt
-3. python main.py
+```
+DailyClip/
+├── application/        # App controller / lifecycle wiring
+├── common/             # Shared runtime and logging helpers
+├── core/               # Entities, interfaces, config, exceptions
+├── infrastructure/     # Storage, DuckDB search, clipboard, hotkeys, screenshot
+├── presentation/       # Quick search and quick note windows
+├── tests/              # Unit and lightweight UI tests
+├── container.py        # Dependency injection container
+├── main.py             # Thin bootstrap entrypoint
+└── pyproject.toml      # Python/runtime/dev tooling config
+```
+
+## Setup
+
+From the repository root:
+
+```bash
+python -m pip install -e .
+python -m pip install -e .[dev]
+python -m DailyClip.main
+```
+
+## Tests
+
+From the repository root:
+
+```bash
+python -m pytest DailyClip/tests
+```

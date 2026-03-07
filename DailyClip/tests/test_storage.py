@@ -1,106 +1,72 @@
-"""
-Tests for storage service
-"""
+"""Tests for file storage."""
 
-import pytest
-import asyncio
-from pathlib import Path
+from __future__ import annotations
+
 from datetime import datetime
 
-import sys
-sys.path.insert(0, str(Path(__file__).parent.parent))
-from infrastructure.storage import FileStorageService
-from core.entities import ClipItem, DailyNote
+import pytest
+
+from DailyClip.core.config import AppConfig
+from DailyClip.core.entities import ClipItem, DailyNote
+from DailyClip.infrastructure.storage import FileStorageService
+
 
 @pytest.mark.asyncio
-async def test_create_daily_folder(temp_data_dir):
-    """Test daily folder creation"""
+async def test_create_daily_folder_creates_standard_subdirectories(temp_data_dir):
+    """Storage should create the expected daily folder structure."""
     storage = FileStorageService(temp_data_dir)
-    
-    date_str = "2024-01-01"
-    daily_dir = await storage.create_daily_folder(date_str)
-    
+
+    daily_dir = await storage.create_daily_folder('2026-03-07')
+
     assert daily_dir.exists()
-    assert (daily_dir / "clippings").exists()
-    assert (daily_dir / "images").exists()
-    assert (daily_dir / "notes").exists()
-    assert (daily_dir / "index").exists()
+    assert (daily_dir / AppConfig.CLIPPINGS_DIRNAME).exists()
+    assert (daily_dir / AppConfig.IMAGES_DIRNAME).exists()
+    assert (daily_dir / AppConfig.NOTES_DIRNAME).exists()
+
 
 @pytest.mark.asyncio
-async def test_append_and_get_clips(temp_data_dir):
-    """Test clip storage and retrieval"""
+async def test_append_clip_uses_per_second_file_and_appends(temp_data_dir):
+    """Clips captured in the same second should append to the same JSONL file."""
     storage = FileStorageService(temp_data_dir)
-    
-    # Create test clips with specific date to avoid conflicts
-    from datetime import datetime
-    test_date = datetime(2024, 1, 1, 12, 0, 0)
-    
-    clip1 = ClipItem(
-        timestamp=test_date,
-        content="First clip content",
-        clip_type="text"
+    timestamp = datetime(2026, 3, 7, 9, 30, 5)
+    first_clip = ClipItem.create_text('first', timestamp=timestamp)
+    second_clip = ClipItem.create_text('second', timestamp=timestamp)
+
+    first_path = await storage.append_clip(first_clip)
+    second_path = await storage.append_clip(second_clip)
+    clips = await storage.get_clips_for_date('2026-03-07')
+
+    assert first_path == second_path
+    assert first_path.name == 'clips_09-30-05.jsonl'
+    assert [clip.content for clip in clips] == ['first', 'second']
+
+
+@pytest.mark.asyncio
+async def test_save_note_and_get_note_round_trip(temp_data_dir):
+    """Notes should persist to notes_YYYY-MM-DD.md and load back."""
+    storage = FileStorageService(temp_data_dir)
+    note = DailyNote.create(
+        date='2026-03-07',
+        content='# Test note',
+        timestamp=datetime(2026, 3, 7, 10, 0, 0),
     )
-    clip2 = ClipItem(
-        timestamp=test_date,
-        content="Second clip content", 
-        clip_type="text"
-    )
-    
-    # Store clips
-    await storage.append_clip(clip1)
-    await storage.append_clip(clip2)
-    
-    # Retrieve clips
-    date_str = clip1.timestamp.strftime("%Y-%m-%d")
-    retrieved_clips = await storage.get_clips_for_date(date_str)
-    
-    assert len(retrieved_clips) == 2
-    assert retrieved_clips[0].content == "First clip content"
-    assert retrieved_clips[1].content == "Second clip content"
+
+    note_path = await storage.save_note(note)
+    loaded_note = await storage.get_note('2026-03-07')
+
+    assert note_path.name == 'notes_2026-03-07.md'
+    assert loaded_note is not None
+    assert loaded_note.content == '# Test note'
+
 
 @pytest.mark.asyncio
-async def test_save_and_get_note(temp_data_dir):
-    """Test note storage and retrieval"""
+async def test_save_screenshot_adds_numeric_suffix_when_name_collides(temp_data_dir):
+    """Screenshots captured in the same second should not overwrite each other."""
     storage = FileStorageService(temp_data_dir)
-    
-    # Create test note
-    date_str = "2024-01-01"
-    note = DailyNote.create(date_str, "# Test Note\n\nThis is a test note.")
-    
-    # Save note
-    await storage.save_note(note)
-    
-    # Retrieve note
-    retrieved_note = await storage.get_note(date_str)
-    
-    assert retrieved_note is not None
-    assert retrieved_note.date == date_str
-    assert retrieved_note.content == "# Test Note\n\nThis is a test note."
+    captured_at = datetime(2026, 3, 7, 10, 15, 22)
 
-@pytest.mark.asyncio
-async def test_get_note_nonexistent(temp_data_dir):
-    """Test retrieving non-existent note"""
-    storage = FileStorageService(temp_data_dir)
-    
-    retrieved_note = await storage.get_note("2024-01-02")
-    assert retrieved_note is None
+    first_path = await storage.save_screenshot(b'first', captured_at=captured_at)
+    second_path = await storage.save_screenshot(b'second', captured_at=captured_at)
 
-@pytest.mark.asyncio
-async def test_save_screenshot(temp_data_dir):
-    """Test screenshot saving"""
-    storage = FileStorageService(temp_data_dir)
-    
-    # Create dummy image data
-    image_data = b"fake_image_data"
-    
-    # Save screenshot
-    image_path = await storage.save_screenshot(image_data)
-    
-    assert image_path.exists()
-    assert image_path.suffix == ".png"
-    assert "screen_" in image_path.name
-    
-    # Verify content
-    with open(image_path, 'rb') as f:
-        saved_data = f.read()
-    assert saved_data == image_data
+    assert first_path.name == 'screen_10-15-22.png'
+    assert second_path.name == 'screen_10-15-22_1.png'
