@@ -1,6 +1,6 @@
 """Presentation layer exports for DailyClip."""
 
-from .quick_note import QuickNoteWindow
-from .quick_search import QuickSearchWindow
+from .unified_window import UnifiedMainWindow
 
-__all__ = ['QuickNoteWindow', 'QuickSearchWindow']
+__all__ = ['UnifiedMainWindow']
+

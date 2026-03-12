@@ -21,7 +21,7 @@ from DailyClip.core.interfaces import (
     ISearchService,
     IStorageService,
 )
-from DailyClip.presentation.quick_search import QuickSearchWindow
+from DailyClip.presentation.unified_window import UnifiedMainWindow
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +54,7 @@ class AppController(QObject):
         self._hotkey_service = hotkey_service
         self._screen_capture_service = screen_capture_service
 
-        self._workspace_window = QuickSearchWindow(
+        self._workspace_window = UnifiedMainWindow(
             search_service=self._search_service,
             storage_service=self._storage_service,
             runtime=self._runtime,
