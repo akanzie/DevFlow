@@ -34,14 +34,14 @@ DailyClip là sự kết hợp giữa clipboard manager (như Ditto), screenshot
 ### 2.2 Chức năng sản phẩm
 - Tự động tạo thư mục theo ngày khi khởi động hoặc chuyển ngày.  
 - Lưu clipboard thay đổi (text → JSONL, image → PNG).  
-- Chụp màn hình vùng/toàn màn hình/active window bằng hotkey nội bộ hoặc nhận ảnh screenshot từ clipboard hệ điều hành (Print Screen, Win+Shift+S) và lưu tự động.  
-- Ghi chú nhanh Markdown với auto-save.  
-- Tìm kiếm nhanh toàn cục (text trong clips/notes).  
-- Duyệt danh sách thư mục ngày và file ngay khi mở GUI, kể cả khi chưa nhập từ khóa.  
-- Xem lưới ảnh chụp trong ngày.
-- Preview ảnh trực tiếp trong GUI khi người dùng chọn ảnh từ kết quả tìm kiếm, danh sách file hoặc gallery.
-- **Lọc trùng lặp thông minh**: Phát hiện exact duplicate (100% giống), skip duplicate trong 10 giây, detect similar content (1–2 ký tự khác) với cảnh báo hoặc gộp tự động.
-- **Chỉnh sửa & quản lý file**: Rename file trực tiếp từ GUI, chỉnh sửa nội dung notes, chỉnh sửa text của clips, xóa file, hỗ trợ bulk rename.
+- Chụp màn hình bằng hotkey nội bộ hoặc nhận ảnh từ clipboard hệ điều hành (Print Screen, Win+Shift+S).
+- **Giao diện hợp nhất (Unified Window)**: Cung cấp một cửa sổ chính duy nhất, được gọi bằng phím tắt, tích hợp các chức năng:
+  - **Tìm kiếm nổi (Spotlight-style)**: Tìm kiếm toàn cục trên tất cả dữ liệu.
+  - **Duyệt file và xem trước**: Duyệt dữ liệu theo ngày, xem trước nội dung (text, ảnh) và chỉnh sửa trực tiếp ngay trong cửa sổ.
+  - **Ghi chú nhanh**: Soạn thảo ghi chú Markdown tích hợp.
+  - **Xem ảnh dạng lưới (Gallery)**.
+- **Xử lý trùng lặp thông minh (Zero-interruption)**: Thực hiện cập nhật im lặng (silent update) cho nội dung trùng lặp hoàn toàn và quản lý phiên bản cho nội dung gần giống.
+- **Tự động nhóm các clip trong ngày** dựa trên ứng dụng nguồn (ví dụ: các clip từ VSCode, Chrome).
 - **Auto-start Windows**: Tùy chọn tự động khởi động ứng dụng khi Windows khởi động, chạy nền tự động.
 
 ### 2.3 Đặc điểm người dùng
@@ -84,40 +84,76 @@ DailyClip là sự kết hợp giữa clipboard manager (như Ditto), screenshot
 - REQ-101: Giám sát sự kiện clipboard thay đổi (real-time via pyperclip/threading).  
 - REQ-102: Khi clipboard có text → append object JSONL: `{ "timestamp": "...", "content": "...", "format": "text", "source_url": "..." }`.  
 - REQ-103: Khi clipboard có image (bao gồm ảnh chụp từ Print Screen, Snipping Tool hoặc Win+Shift+S) → lưu .png vào images/ 
-- REQ-103a: **Điều kiện tạo file khi copy (File Creation Conditions)**: Ứng dụng chỉ tạo file clip/image mới khi nội dung clipboard thay đổi và thỏa mãn: (1) Nội dung có độ dài tối thiểu (text ≥ 3 ký tự), (2) Là ảnh có độ phân giải hợp lệ (width × height ≥ 64×64 pixels), hoặc (3) Là dữ liệu có cấu trúc nhận diện được (URL, code, mã định dạng). Bỏ qua clipboard trống hoặc chứa dữ liệu không hợp lệ.
-- REQ-104: **Deduplicate Strategy** (Chính sách loại bỏ trùng lặp):
-  - **REQ-104a**: Bỏ qua nếu nội dung **giống đúc** (exact match 100%) với 1 clip đã copy trước đó trong **cùng 1 ngày** hoặc tìm thấy nội dung đó trong clippings/ → không tạo file mới.
-  - **REQ-104b**: Bỏ qua nếu nội dung **giống hoàn toàn** với clip copy trước đó trong vòng **10 giây gần nhất** → không tạo file mới.
-  - **REQ-104c**: Nếu nội dung **gần giống** (khác 1–2 ký tự hoặc có edit nhỏ, hoặc độ tương đồng > 95%) so với clip gần nhất:
-    - **Option 1 (Cảnh báo)**: Hiển thị dialog hỏi user: *"Nội dung tương tự clip vừa copy (XX% giống). Lưu clip mới hay bỏ qua?"*
-    - **Option 2 (Gộp tự động)**: Nếu đã có clip tương tự trong 5 phút gần nhất → tự động cập nhật metadata clip cũ (thêm timestamp mới) thay vì tạo file mới.
-    - **Config tùy chọn**: User có thể cấu hình mode gộp tự động mà không cần cảnh báo.
-- REQ-105: Ứng dụng hỗ trợ phím tắt chụp màn hình nội bộ (mặc định Alt+S, có thể cấu hình): hỗ trợ region / active window / fullscreen, lưu tự động vào images/.
+- REQ-103a: **Điều kiện tạo file khi copy (File Creation Conditions)**: Ứng dụng chỉ tạo file clip/image mới khi nội dung clipboard thay đổi và thỏa mãn: (1) Nội dung có độ dài tối thiểu (text ≥ 3 ký tự), (2) Là ảnh có độ phân giải hợp lệ (width × height ≥ 64×64 pixels), hoặc (3) Là dữ liệu có cấu trúc nhận diện được (URL, code, mã định dạng). Bỏ qua clipboard trống hoặc chứa dữ liệu không hợp lệ. (4) Nếu copy liên tục từ cùng một ứng dụng trong vài giây → có thể bỏ qua hoặc gộp.
+- REQ-104: **Xử lý trùng lặp và phiên bản (Zero-interruption)**:
+  - **REQ-104a (Cập nhật - Silent Update)**: Khi người dùng copy nội dung **trùng khớp 100%** (exact match) với một clip đã tồn tại, hệ thống phải thực hiện **Cập nhật im lặng (Silent Update)**: tự động cập nhật timestamp của clip cũ đó và đưa nó lên đầu danh sách. Tuyệt đối không hiển thị hộp thoại xác nhận hay tạo bản sao mới.
+  - **REQ-104b**: Bỏ qua nếu nội dung **giống hoàn toàn** với clip copy trước đó trong vòng **10 giây gần nhất** để tránh lưu các thao tác copy lặp lại nhanh.
+  - **REQ-104c (Cập nhật - Version History)**: Nếu nội dung **gần giống** (ví dụ: sửa một vài dòng code rồi copy lại), hệ thống sẽ lưu thành một clip mới nhưng tự động liên kết nó như một **"phiên bản mới"** của clip gốc.
+    - **Giới hạn**: Lưu tối đa 10 phiên bản gần nhất cho một nhóm nội dung để tối ưu lưu trữ. Các phiên bản cũ hơn sẽ tự động bị loại bỏ hoặc gộp.
+    - **Thao tác**: Người dùng có thể xem lịch sử, so sánh sự khác biệt ("View Diff") và thực hiện **"Revert" (Khôi phục)** để đưa một phiên bản cũ lên làm phiên bản hiện hành (main clip).
+- REQ-105: Ứng dụng hỗ trợ phím tắt chụp màn hình nội bộ (mặc định Alt+S, có thể cấu hình): hỗ trợ region / fullscreen, lưu tự động vào images/.
 - REQ-106: Nếu ảnh chụp được tạo bởi Print Screen, Snipping Tool hoặc Win+Shift+S và xuất hiện trên clipboard, ứng dụng phải tự nhận diện và lưu ảnh đó vào images/ như screenshot hợp lệ.
 
 #### 3.1.3 Giao diện & Tương tác người dùng
-- REQ-201: Global hotkey (system-wide):  
-  - Alt+Space → mở Quick Search bar (floating, topmost).  
-  - Alt+N → mở cửa sổ ghi chú nhanh (Markdown editor).  
+- REQ-201 (Cập nhật - Unified Hotkeys): Global hotkey (system-wide):
+  - `Alt+Space` → Mở/đóng cửa sổ chính (Unified Main Window) ở chế độ tìm kiếm nổi (Spotlight-style).
   - Alt+S (mặc định, có thể cấu hình) → chụp màn hình.  
-- REQ-202: Quick Note window: Editor Markdown, auto-save mỗi 5s hoặc khi Esc/đóng.  
-- REQ-203: Quick Search: Thanh tìm kiếm realtime, hiển thị kết quả từ clips/notes/images, cho phép mở file hoặc thư mục chứa, và hiển thị preview nếu item đang chọn là ảnh.  
-- REQ-204: Khi Quick Search mở với ô tìm kiếm trống, GUI phải hiển thị danh sách thư mục ngày và file hiện có để người dùng duyệt/chọn, thay vì chỉ có ô tìm kiếm rỗng.  
-- REQ-205: Gallery view: Grid ảnh trong ngày, hỗ trợ preview ảnh đang chọn và click để mở full-size.
-- REQ-206: Khi người dùng chọn file ảnh hoặc screenshot trong danh sách duyệt hoặc kết quả tìm kiếm, GUI phải hiển thị preview ảnh ngay trong cửa sổ hiện tại kèm metadata cơ bản (tên file, thời gian lưu).
-- REQ-207: **Chỉnh sửa tên file và nội dung**: Người dùng có khả năng sửa tên file clips, notes hoặc images trực tiếp từ GUI (double-click tên file để rename, hoặc right-click → rename). Người dùng có thể mở và chỉnh sửa nội dung file .md (notes) trực tiếp từ Quick Note window hoặc text editor tích hợp, sau đó auto-save hoặc save manually. Hỗ trợ batch rename (multiple files) với preview thay đổi trước khi confirm.
-- REQ-208: **Chỉnh sửa nội dung clips**: Người dùng có thể mở file `.jsonl` (clips) và chỉnh sửa nội dung text hoặc metadata trực tiếp (ví dụ: sửa lỗi chính tả, thêm source URL, cập nhật tags). Thay đổi sẽ được lưu vào file tương ứng. Thêm tùy chọn "Edit Content" (right-click trên clip item hay double-click text) → mở editor Markdown với nội dung text → save/cancel.
+  (Chức năng ghi chú nhanh được tích hợp vào cửa sổ chính, không cần hotkey riêng).
+- REQ-202 (Cập nhật - Unified Main Window & Spotlight UI):
+  - Hệ thống phải cung cấp một **cửa sổ chính hợp nhất (Unified Main Window)**, thay thế cho các cửa sổ riêng lẻ.
+  - Khi được gọi bằng hotkey, cửa sổ ban đầu xuất hiện dưới dạng một **thanh tìm kiếm nổi tối giản (Spotlight-style)** ở giữa màn hình, hiển thị kết quả tìm kiếm realtime bên dưới.
+  - Khi chọn một item, cửa sổ sẽ mở rộng để hiển thị giao diện đầy đủ, bao gồm danh sách kết quả và một **panel preview/chỉnh sửa** bên cạnh.
+  - Cửa sổ phải hỗ trợ chế độ "luôn ở trên" (always on top) có thể bật/tắt.
+  - **Cơ chế đóng (UX Dismissal)**: Nhấn `Esc` sẽ đóng cửa sổ hoặc quay lại trạng thái thanh tìm kiếm nhỏ (nếu đang ở chế độ xem chi tiết) để tối ưu hóa thao tác.
+  - **Luồng tương tác (Flow Diagram)**:
+    ```mermaid
+    graph TD
+        Start((Alt+Space)) --> SearchBar{Floating Bar}
+        SearchBar -- User types query --> ResultsList[Live Results]
+        SearchBar -- Empty query --> BrowseMode[Browse by Date]
+        
+        ResultsList -- Select Item --> DetailView[Unified Window Expanded]
+        BrowseMode -- Select Item --> DetailView
+        
+        DetailView --> PreviewPane[Preview & Inline Edit]
+        
+        PreviewPane -- Ctrl+S --> Save[Save & Update Index]
+        PreviewPane -- Esc --> SearchBar
+        
+        SearchBar -- Esc --> Close((Hidden/Tray))
+    ```
+
+- REQ-203 (Cập nhật - Chế độ xem linh hoạt):
+  - Cửa sổ chính phải cho phép chuyển đổi linh hoạt giữa các chế độ xem:
+    - **Search Mode**: Tìm kiếm toàn cục.
+    - **Browse Mode**: Khi ô tìm kiếm trống, tự động hiển thị danh sách duyệt file/thư mục theo ngày.
+    - **Gallery Mode**: Hiển thị các mục hình ảnh dưới dạng lưới (grid view).
+    - **Note Mode**: Cung cấp giao diện soạn thảo Markdown tích hợp, auto-save khi thay đổi.
+- REQ-204 (Cập nhật - Tích hợp Preview và Chỉnh sửa nội tuyến):
+  - Panel preview/chỉnh sửa phải hiển thị nội dung chi tiết của item đang được chọn.
+  - **Đối với clip/note (text)**: Cho phép **chỉnh sửa trực tiếp (inline edit)** ngay trong panel. Hỗ trợ các tính năng soạn thảo cơ bản như Undo/Redo, và lưu bằng `Ctrl+S`. Khi lưu, hệ thống có thể đề xuất tạo phiên bản mới hoặc ghi đè.
+  - **Xử lý xung đột khi chỉnh sửa (Edit Conflict)**: Trong trường hợp người dùng đang chỉnh sửa một Clip, nếu hệ thống phát hiện trùng lặp mới (Silent Update) cho Clip đó, hệ thống phải **ưu tiên nội dung người dùng đang soạn thảo**. Quá trình cập nhật ngầm không được làm mới giao diện editor gây mất dữ liệu chưa lưu.
+  - **Đối với ảnh**: Hiển thị ảnh preview và metadata (kích thước, thời gian).
+- REQ-205 (Cập nhật - Hành động nhanh từ Preview):
+  - Panel preview phải tích hợp các nút hành động nhanh, bao gồm: Copy lại nội dung, Mở file bằng ứng dụng mặc định, Đánh dấu sao (Favorite), Xóa file, Chỉnh sửa tên file.
+- REQ-206: **Nhóm clip thông minh (Smart Grouping)**: Hệ thống hỗ trợ nhóm các clip trong danh sách duyệt dựa trên:
+  - **Nguồn ứng dụng**: (Mặc định) Group theo Window Title/Process Name (VD: "Visual Studio Code", "Chrome").
+  - **Chủ đề/Tags**: (Tùy chọn) Group theo các thẻ (tags) người dùng tự gán hoặc tự động phát hiện (VD: "Code Snippets", "Images", "Links").
 
 #### 3.1.4 Tìm kiếm & Index
 - REQ-301: Index dữ liệu text (clips/*.jsonl, notes/*.md) bằng DuckDB.  
 - REQ-302: Tìm kiếm full-text, fuzzy, sắp xếp theo thời gian giảm dần.  
 - REQ-303: Rebuild/incremental index khi có dữ liệu mới hoặc ngày mới.
 
+#### 3.1.5 Bảo mật & An toàn dữ liệu
+- REQ-401: **Khóa ứng dụng (App Lock)**: Hỗ trợ khóa truy cập giao diện chính bằng mật khẩu hoặc Windows Hello (nếu phần cứng hỗ trợ). Khi bị khóa, ứng dụng vẫn chạy ngầm để thu thập clipboard nhưng yêu cầu xác thực khi nhấn `Alt+Space` để xem dữ liệu.
+- REQ-402: **Mã hóa dữ liệu (Encryption - Optional)**: Cung cấp tùy chọn mã hóa file nội dung (AES-256) trên đĩa. Lưu ý: Tính năng này có thể làm giảm nhẹ hiệu suất tìm kiếm và preview.
+
 ### 3.2 Yêu cầu phi chức năng (Non-Functional Requirements)
 
 | ID       | Yêu cầu                              | Mô tả / Tiêu chí đo lường                              |
 |----------|--------------------------------------|-----------------------------------------------------------------|
-| NFR-001  | Hiệu suất – Thời gian phản hồi       | Quick Search < 500ms (với <10.000 file tích lũy).               |
+| NFR-001  | Hiệu suất – Thời gian phản hồi       | Quick Search < 500ms (với <10.000 file). Đảm bảo < 1000ms ngay cả khi dữ liệu đạt **100.000 clips**. |
 | NFR-002  | Hiệu suất – Dung lượng               | App chạy nền < 150MB RAM (Python overhead).                    |
 | NFR-003  | Độ tin cậy                           | Không crash khi clipboard thay đổi liên tục (>100 lần/phút).   |
 | NFR-003a | Deduplicate Performance              | Kiểm tra trùng lặp nội dung (exact/similar match) < 100ms, hỗ trợ tối thiểu 10.000 clips trong memory index. |
@@ -125,6 +161,7 @@ DailyClip là sự kết hợp giữa clipboard manager (như Ditto), screenshot
 | NFR-005  | Bảo mật                              | Dữ liệu local, tùy chọn xóa tự động sau 30/90 ngày.             |
 | NFR-006  | Khả dụng & Bảo trì                   | Dễ backup (zip folder), dễ migrate (cấu trúc thư mục đơn giản).|
 | NFR-007  | Giao diện - Desktop-like             | Modern UI giống phần mềm desktop chuyên nghiệp (PyQt6 dark theme, hỗ trợ light mode). Cửa sổ phải có title bar, minimize/maximize/close buttons, resizable frame, context menu chuẩn Windows. Không sử dụng web view hoặc Electron-based framework. Ngoài ra, hỗ trợ native Windows window style với icon trên taskbar, tray icon ở system tray, và tích hợp context menu (right-click) trên desktop/explorer. |
+| NFR-008  | Khả năng phục hồi (Resiliency)       | Cơ chế **Crash Recovery**: Dữ liệu clipboard queue và index chưa kịp ghi đĩa phải được khôi phục hoặc rebuild tự động lần khởi động kế tiếp. Ghi chú (Notes) phải có cơ chế temp file để không mất dữ liệu đang gõ dở nếu mất điện/crash. |
 
 ### 3.3 Yêu cầu giao diện bên ngoài
 - Windows API: Clipboard (via pyperclip), Hotkey (via keyboard/pynput), Screenshot (via pyautogui/mss), clipboard image intake tương thích Print Screen và Win+Shift+S.  
@@ -135,26 +172,25 @@ DailyClip là sự kết hợp giữa clipboard manager (như Ditto), screenshot
 1. **Khởi động ngày mới**: App tự tạo thư mục 2026-03-06 → thông báo tray icon.  
 2. **Copy code từ web**: Ctrl+C → lưu clips_09-30-05.jsonl với content + URL (nếu có).  
 3. **Chụp màn hình ý tưởng**: Alt+S hoặc Print Screen/Win+Shift+S → ảnh được tạo → app lưu screen_10-15-22.png.  
-4. **Ghi chú nhanh**: Alt+N → viết Markdown → Esc → auto-save vào notes_2026-03-06.md.  
-5. **Tìm lại nội dung cũ**: Alt+Space → gõ "async await" → hiển thị kết quả từ 3 ngày trước.
-6. **Mở GUI để duyệt dữ liệu**: Alt+Space → chưa nhập gì → thấy danh sách thư mục ngày và file để chọn trực tiếp.
-7. **Preview ảnh đã lưu**: Chọn một screenshot hoặc file ảnh trong danh sách/kết quả tìm kiếm → GUI hiển thị preview ảnh và metadata cơ bản ngay trong cửa sổ.
-8. **Chỉnh sửa tên file**: Double-click trên file trong danh sách → nhập tên mới → file rename (hoặc right-click → rename). Hỗ trợ rename hàng loạt (bulk rename) với preview trước confirm.
-9. **Auto-start app**: User mở Settings → bật tùy chọn "Auto-start on Windows Startup" → app tự khởi động khi Windows khởi động, chạy nền với tray icon.
-10. **Lọc trùng lặp nội dung**: User copy đoạn code → lưu clips_10-00-00.jsonl. Sau 2 phút, copy lại cùng đoạn code → app nhận diện "exact duplicate cùng ngày" → bỏ qua, không tạo file mới.
-11. **Cảnh báo nội dung gần giống**: User copy "async await in JavaScript" → lưu clip. 30 giây sau copy "async await in Typescript" (khác 3 ký tự) → dialog cảnh báo *"95% giống clip vừa copy. Lưu hay bỏ qua?"* → user chọn "Lưu" → tạo clip mới hoặc "Bỏ qua" → không lưu.
-12. **Gộp tự động nội dung tương tự**: Nếu bật mode auto-merge → copy "Python tips" → copy "Python tip" (sai 1 ký tự) trong 5 phút → app tự động gộp, cập nhật timestamp clip cũ, không tạo file mới.
-13. **Chỉnh sửa nội dung clip**: User right-click trên clip item → chọn "Edit Content" → text editor mở → user sửa typo hoặc cập nhật thông tin → save → nội dung clip được cập nhật trong file .jsonl.
+4. **Tìm kiếm và xem chi tiết (Unified Flow)**: User nhấn `Alt+Space`, thanh tìm kiếm nổi hiện ra. User gõ "async await". Danh sách kết quả hiện ngay bên dưới. User dùng phím mũi tên để chọn một clip code. Cửa sổ tự động mở rộng, hiển thị danh sách kết quả bên trái và nội dung đầy đủ của clip code trong panel preview bên phải.
+5. **Chỉnh sửa nhanh (Inline Edit)**: Trong panel preview, user phát hiện một lỗi chính tả trong clip. User click trực tiếp vào vùng văn bản, sửa lỗi, rồi nhấn `Ctrl+S` để lưu lại. Thao tác hoàn tất mà không cần rời khỏi cửa sổ chính.
+6. **Ghi chú nhanh (Integrated)**: User nhấn `Alt+Space`, sau đó chuyển sang chế độ "Note". Giao diện soạn thảo Markdown hiện ra ngay trong cửa sổ chính. User viết ghi chú, và nó sẽ được tự động lưu.
+7. **Hành động nhanh với ảnh**: User tìm thấy một ảnh chụp màn hình. Trong panel preview, user bấm nút "Copy" để sao chép lại ảnh vào clipboard, hoặc bấm "Xóa" để loại bỏ file.
+8. **Xử lý copy trùng lặp (Im lặng)**: User đang viết code và ấn Ctrl+C một đoạn hàm hai lần liên tiếp theo thói quen. Ứng dụng phát hiện trùng lặp hoàn toàn. Hệ thống chỉ cập nhật thời gian của clip đó thành hiện tại và đưa nó lên đầu danh sách. User không hề bị làm phiền. Khi mở cửa sổ chính, đoạn code đó vẫn nằm ngay trên cùng.
+9. **Quản lý phiên bản cho nội dung gần giống**: User copy "async await in JavaScript" → lưu clip. 30 giây sau copy "async await in Typescript" (sửa đổi nhỏ) → ứng dụng lưu clip mới nhưng hiển thị nó như một "phiên bản 2" của clip gốc. User có thể bấm "View Diff" để xem sự khác biệt.
+10. **Gộp clip tự động theo nguồn**: User dành 30 phút đọc tài liệu trên Chrome và copy 5 đoạn text khác nhau. Khi mở ứng dụng, tại mục hôm nay, có một nhóm tên là "Google Chrome (5 clips)". User bấm mở rộng để xem nhanh cả 5 đoạn text này mà không bị lẫn lộn với các clip copy từ Slack hay Word.
+11. **Auto-start app**: User mở Settings → bật tùy chọn "Auto-start on Windows Startup" → app tự động khởi động khi Windows khởi động, chạy nền với tray icon.
+12. **Xử lý xung đột khi đang sửa**: User đang mở một đoạn code cũ để thêm ghi chú. Trong lúc đó, User vô tình copy lại chính đoạn code đó từ IDE. Hệ thống thực hiện "Silent Update" (cập nhật timestamp) cho clip trong database, nhưng giao diện chỉnh sửa của User vẫn giữ nguyên trạng thái đang gõ, không bị refresh hay mất dữ liệu. User lưu xong mới cập nhật lại danh sách.
 
 ## 5. Công nghệ đề xuất (Technology Stack)
 
 | Thành phần              | Công nghệ Python                    |
 |------------------------|------------------------------------|
 | **Language**            | Python 3.10+                       |
-| **GUI Framework**       | PyQt6 (native desktop, không Electron/web) |
-| **Windows Integration** | winreg (Registry) cho Auto-start, win32com cho OS integration |
+| **GUI Framework**       | PyQt6 (native desktop, không Electron/web). Hỗ trợ tùy chỉnh UI (frameless, topmost) cho trải nghiệm giống Spotlight. |
+| **Windows Integration** | `winreg` (Registry) cho Auto-start, `pygetwindow` hoặc `psutil` để lấy metadata ứng dụng nguồn. |
 | **Search/Index**        | duckdb (duckdb-python)             |
-| **Similarity Detection** | difflib (built-in), fuzzywuzzy hoặc rapidfuzz cho similarity matching |
+| **Similarity & Diff**   | `difflib` (built-in) để phát hiện nội dung gần giống và hiển thị khác biệt (diff view). |
 | **Image Processing**    | Pillow (PIL)                       |
 | **Hotkey/Clipboard**    | keyboard / pynput / pyperclip      |
 | **Screenshot**          | pyautogui hoặc mss + PIL           |
