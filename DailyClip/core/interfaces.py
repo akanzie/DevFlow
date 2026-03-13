@@ -41,6 +41,24 @@ class IStorageService(Protocol):
     async def list_browse_entries(self, limit: int = 100) -> list[BrowseEntry]:
         """Return recent folders and files for browse mode."""
 
+    async def find_exact_clip_match(self, entry_id: str) -> ClipItem | None:
+        """Find an exact duplicate clip based on entry_id hash."""
+
+    async def get_recent_clips(self, limit: int = 50, favorite_only: bool = False, tag: str | None = None) -> list[ClipItem]:
+        """Return recent text clips for versioning sequence matching."""
+
+    async def get_all_versions(self, version_group_id: str) -> list[ClipItem]:
+        """Return all valid versions of a clip group (for diffing)."""
+
+    async def count_versions_sync(self, version_group_id: str) -> int:
+        """Return the count of clips grouped under a version_of tree."""
+
+    async def delete_oldest_version(self, version_group_id: str) -> None:
+        """Write a tombstone entity deleting the chronologically oldest item in a group."""
+
+    async def delete_clip(self, entry_id: str) -> None:
+        """Write a tombstone entity deleting a clip."""
+
 
 class ISearchService(Protocol):
     """Interface for search operations."""
@@ -56,6 +74,15 @@ class ISearchService(Protocol):
 
     async def index_note(self, note: DailyNote) -> None:
         """Index a single note incrementally."""
+
+    async def index_clips(self, clips: list[ClipItem]) -> None:
+        """Index multiple clips incrementally."""
+
+    async def index_notes(self, notes: list[DailyNote]) -> None:
+        """Index multiple notes incrementally."""
+
+    def close(self) -> None:
+        """Close connection to backend index storage."""
 
 
 class IClipboardMonitor(Protocol):

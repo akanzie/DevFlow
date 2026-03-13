@@ -57,6 +57,7 @@ class AppController(QObject):
         self._workspace_window = UnifiedMainWindow(
             search_service=self._search_service,
             storage_service=self._storage_service,
+            clipboard_monitor=self._clipboard_monitor,
             runtime=self._runtime,
             save_callback=self.queue_note_save,
             autosave_seconds=AppConfig.QUICK_NOTE_AUTOSAVE_SECONDS,
@@ -81,14 +82,9 @@ class AppController(QObject):
         today = self._today()
         self._runtime.submit(self._bootstrap(today)).result(timeout=30)
 
-        self._clipboard_monitor.register_callback(self._on_clip_captured)
         self._hotkey_service.register_hotkey(
             AppConfig.HOTKEY_QUICK_SEARCH,
             self.show_search_requested.emit,
-        )
-        self._hotkey_service.register_hotkey(
-            AppConfig.HOTKEY_NEW_NOTE,
-            self.show_note_requested.emit,
         )
         self._hotkey_service.register_hotkey(
             AppConfig.HOTKEY_SCREENSHOT,
@@ -124,8 +120,8 @@ class AppController(QObject):
             logger.info("DailyClip stopped.")
 
     def show_quick_search(self) -> None:
-        """Show and focus the merged workspace on the search tab."""
-        self._workspace_window.show_search_view()
+        """Show the floating Spotlight bar when Alt+Space is pressed."""
+        self._workspace_window.show_compact()
 
     def show_quick_note(self) -> None:
         """Show and focus the merged workspace on the note tab."""

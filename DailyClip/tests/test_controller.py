@@ -132,7 +132,7 @@ def test_controller_start_and_stop_wire_services(qapp):
     assert search_service.rebuild_calls == 1
     assert clipboard_monitor.started is True
     assert hotkey_service.listening is True
-    assert len(hotkey_service.registered) == 3
+    assert len(hotkey_service.registered) == 2
 
     controller.stop()
 
@@ -155,6 +155,6 @@ def test_controller_opens_note_tab_in_merged_workspace(qapp):
     controller._runtime.start()
     try:
         controller.show_quick_note()
-        assert controller._workspace_window._tabs.currentWidget() is controller._workspace_window._note_tab
+        assert controller._workspace_window._stack.currentWidget() is controller._workspace_window._note_widget
     finally:
         controller._runtime.stop()

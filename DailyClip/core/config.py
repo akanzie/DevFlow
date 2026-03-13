@@ -19,7 +19,6 @@ class AppConfig:
     NOTES_DIRNAME = "notes"
 
     HOTKEY_QUICK_SEARCH = "alt+space"
-    HOTKEY_NEW_NOTE = "alt+n"
     HOTKEY_SCREENSHOT = "alt+s"
 
     CLIPBOARD_CHECK_INTERVAL = 0.5
@@ -31,7 +30,7 @@ class AppConfig:
     WORKSPACE_AUTO_REFRESH_MS = 3000
     MAX_CLIP_LENGTH = 10_000
     MAX_NOTE_SIZE = 100_000
-
+    MAX_VERSIONS = 5
     SCREENSHOT_PREFIX = "screen_"
     SCREENSHOT_EXTENSION = ".png"
     CLIP_FILE_PREFIX = "clips_"
@@ -78,7 +77,6 @@ class AppConfig:
             "data_dir": str(AppConfig.get_data_dir()),
             "hotkeys": {
                 "quick_search": AppConfig.HOTKEY_QUICK_SEARCH,
-                "new_note": AppConfig.HOTKEY_NEW_NOTE,
                 "screenshot": AppConfig.HOTKEY_SCREENSHOT,
             },
             "clipboard": {
