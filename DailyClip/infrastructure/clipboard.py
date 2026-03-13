@@ -91,24 +91,28 @@ class ClipboardMonitorService(IClipboardMonitor):
     def _monitor_loop(self) -> None:
         """Continuously read clipboard text and image payloads."""
         while not self._stop_event.is_set():
-            current_text = self._read_clipboard_text()
-            if current_text != self._last_text_content:
-                self._last_text_content = current_text
-                if current_text:
-                    future = self._runtime.submit(self._process_clipboard_text(current_text))
-                    future.add_done_callback(self._log_future_failure)
+            try:
+                current_text = self._read_clipboard_text()
+                if current_text != self._last_text_content:
+                    self._last_text_content = current_text
+                    if current_text:
+                        future = self._runtime.submit(self._process_clipboard_text(current_text))
+                        future.add_done_callback(self._log_future_failure)
 
-            image_payload = self._read_clipboard_image()
-            if image_payload is None:
-                self._last_image_digest = None
-            else:
-                image_digest = self._build_image_digest(image_payload)
-                if image_digest != self._last_image_digest:
-                    self._last_image_digest = image_digest
-                    future = self._runtime.submit(
-                        self._process_clipboard_image(image_payload, image_digest)
-                    )
-                    future.add_done_callback(self._log_future_failure)
+                image_payload = self._read_clipboard_image()
+                if image_payload is None:
+                    self._last_image_digest = None
+                else:
+                    image_digest = self._build_image_digest(image_payload)
+                    if image_digest != self._last_image_digest:
+                        self._last_image_digest = image_digest
+                        future = self._runtime.submit(
+                            self._process_clipboard_image(image_payload, image_digest)
+                        )
+                        future.add_done_callback(self._log_future_failure)
+            except Exception as exc:
+                logger.exception("Unexpected error in clipboard monitor loop: %s", exc)
+                time.sleep(1)  # Brief pause before retry
 
             time.sleep(AppConfig.CLIPBOARD_CHECK_INTERVAL)
 
@@ -148,18 +152,17 @@ class ClipboardMonitorService(IClipboardMonitor):
             logger.debug("Skipped duplicate clipboard text (RAM check).")
             return
 
-        # 4. Tạo ID dựa trên nội dung (Content-addressable ID)
-        content_hash = hashlib.sha1(clean_content.encode("utf-8")).hexdigest()
+        # 4. Tạo ID dựa trên nội dung (Content-addressable ID) - Đảm bảo khớp với Logic trong entities.py
+        normalized = "\n".join(line.rstrip() for line in clean_content.splitlines()).strip()
+        content_hash = hashlib.sha1(normalized.encode("utf-8")).hexdigest()
         entry_id = f"clip:{content_hash}"
 
-        # 5. Kiểm tra trong Database/Storage
+        # 5. Kiểm tra trong Database/Storage - Exact match check (REQ-104b)
         existing_clip = await self._storage_service.find_exact_clip_match(entry_id)
 
         if existing_clip:
-            logger.info("Nội dung đã tồn tại, chỉ cập nhật timestamp cho ID: %s", entry_id)
-            # Cập nhật thời gian để bản ghi cũ "nhảy" lên đầu danh sách
-            await self._storage_service.update_clip_timestamp(entry_id, datetime.now())
-            # Nếu bạn có UI, có thể cần broadcast để UI biết mà move item này lên top
+            logger.info("Exact duplicate found, skipping: %s", entry_id)
+            # Notify UI without persisting or updating timestamp
             self._broadcast_clip(existing_clip)
             return
 
@@ -173,12 +176,13 @@ class ClipboardMonitorService(IClipboardMonitor):
 
         for older in recent_texts:
             similarity = difflib.SequenceMatcher(None, clean_content, older.content).ratio()
-            if similarity > 0.80:
+            # Tăng threshold lên 0.95 để tránh trường hợp "siêu nhân" vs "5 anh em siêu nhân" bị gộp common version
+            if similarity > 0.95:
                 version_of = older.version_of or older.entry_id
 
                 # Checking constraints removing oldest child if counts max out
                 count = await self._storage_service.count_versions_sync(version_of)
-                if count >= 10:
+                if count >= AppConfig.MAX_VERSIONS:
                     await self._storage_service.delete_oldest_version(version_of)
                 break
 
@@ -205,6 +209,13 @@ class ClipboardMonitorService(IClipboardMonitor):
             logger.debug("Skipped duplicate clipboard image.")
             return
 
+        # Exact Duplicate check (REQ-104b) - Check BEFORE saving file
+        exact_match = await self._storage_service.find_exact_clip_match(image_digest)
+        if exact_match:
+            logger.info("Exact image duplicate found, skipping: %s", image_digest)
+            self._broadcast_clip(exact_match)
+            return
+
         try:
             with Image.open(io.BytesIO(image_data)) as img:
                 if img.width < 64 or img.height < 64:
@@ -222,19 +233,8 @@ class ClipboardMonitorService(IClipboardMonitor):
             content=f"Clipboard image {image_path.name}",
             file_path=image_path,
             timestamp=captured_at,
+            entry_id=image_digest,
         )
-
-        # Exact Duplicate check
-        exact_match = await self._storage_service.find_exact_clip_match(clip.entry_id)
-        if exact_match:
-            new_clip = replace(exact_match, timestamp=datetime.now(), file_path=image_path, is_deleted=False)
-            tombstone = replace(exact_match, timestamp=datetime.now(), is_deleted=True)
-            await self._storage_service.append_clip(tombstone)
-            await self._storage_service.append_clip(new_clip)
-            await self._search_service.index_clip(new_clip)
-            self._broadcast_clip(new_clip)
-            logger.info("Silently updated clipboard image to %s.", image_path)
-            return
 
         await self._storage_service.append_clip(clip)
         await self._search_service.index_clip(clip)

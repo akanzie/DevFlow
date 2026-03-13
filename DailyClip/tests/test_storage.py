@@ -37,7 +37,7 @@ async def test_append_clip_uses_per_second_file_and_appends(temp_data_dir):
     clips = await storage.get_clips_for_date("2026-03-07")
 
     assert first_path == second_path
-    assert first_path.name == "clips_09-30-05.jsonl"
+    assert first_path.name == "clips_09-30-05-000000.jsonl"
     assert [clip.content for clip in clips] == ["first", "second"]
 
 

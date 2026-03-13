@@ -45,6 +45,8 @@ class ClipItem:
             "file_path": str(self.file_path) if self.file_path else None,
             "version_of": self.version_of,
             "is_deleted": self.is_deleted,
+            "is_favorite": self.is_favorite,
+            "tags": self.tags,
         }
 
     @classmethod
@@ -60,6 +62,8 @@ class ClipItem:
             file_path=Path(data["file_path"]) if data.get("file_path") else None,
             version_of=data.get("version_of"),
             is_deleted=data.get("is_deleted", False),
+            is_favorite=data.get("is_favorite", False),
+            tags=data.get("tags", []),
         )
 
     @classmethod
@@ -73,7 +77,7 @@ class ClipItem:
         """Build a text clip using sensible defaults."""
         ts = timestamp or datetime.now()
         normalized = "\n".join(line.rstrip() for line in content.splitlines()).strip()
-        digest = hashlib.sha1(f"{ts.isoformat()}:{normalized}".encode("utf-8")).hexdigest()
+        digest = hashlib.sha1(normalized.encode("utf-8")).hexdigest()
 
         return cls(
             entry_id=f"clip:{digest}",
@@ -91,14 +95,15 @@ class ClipItem:
         content: str,
         file_path: Path,
         timestamp: datetime | None = None,
+        entry_id: str | None = None,
     ) -> "ClipItem":
         """Build an image clip using sensible defaults."""
         ts = timestamp or datetime.now()
-        normalized = f"image:{file_path.name}"
-        digest = hashlib.sha1(f"{ts.isoformat()}:{normalized}".encode("utf-8")).hexdigest()
+        # If no entry_id provided, fallback to path-based hash (less stable than data-hash but better than timestamp)
+        eid = entry_id or f"clip:{hashlib.sha1(f'image:{file_path.name}'.encode('utf-8')).hexdigest()}"
 
         return cls(
-            entry_id=f"clip:{digest}",
+            entry_id=eid,
             timestamp=ts,
             content=content,
             clip_type="image",
@@ -118,6 +123,10 @@ class SearchResult:
     preview: str
     file_path: Path | None
     source_url: str | None
+    version_of: str | None
+    is_deleted: bool
+    is_favorite: bool
+    tags: list[str]
     score: float = 1.0
 
     def to_dict(self) -> dict[str, Any]:

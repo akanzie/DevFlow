@@ -98,6 +98,10 @@ class FileStorageService(IStorageService):
         """Return recent text clips for versioning sequence matching."""
         return await asyncio.to_thread(self._get_recent_clips_sync, limit, favorite_only, tag)
 
+    async def update_clip_timestamp(self, entry_id: str, new_timestamp: datetime) -> None:
+        """Update the last-seen timestamp of an existing clip by appending a new log entry."""
+        await asyncio.to_thread(self._update_clip_timestamp_sync, entry_id, new_timestamp)
+
     async def count_versions_sync(self, version_group_id: str) -> int:
         """Return the count of clips grouped under a version_of tree."""
         return await asyncio.to_thread(self._count_versions_sync_impl, version_group_id)
@@ -113,6 +117,13 @@ class FileStorageService(IStorageService):
     async def delete_clip(self, entry_id: str) -> None:
         """Write a tombstone entity deleting a clip."""
         await asyncio.to_thread(self._delete_clip_sync, entry_id)
+
+    async def delete_note(self, date_str: str) -> None:
+        """Delete a daily note from disk."""
+        note_path = await self._get_note_path(date_str)
+        if await asyncio.to_thread(note_path.exists):
+            await asyncio.to_thread(note_path.unlink)
+            logger.info("Deleted note for %s at %s", date_str, note_path)
 
     async def _get_clip_path(self, timestamp: datetime) -> Path:
         """Resolve the clip file path for a timestamp."""
@@ -156,19 +167,40 @@ class FileStorageService(IStorageService):
             files = sorted(clips_dir.glob("*.jsonl"), reverse=True)
             for file_path in files:
                 try:
-                    # We have to read the file entirely and backwards to find the newest state
-                    lines = file_path.read_text(encoding="utf-8").splitlines()
-                    for line in reversed(lines):
-                        if not line.strip():
-                            continue
-                        data = json.loads(line)
-                        if data.get("entry_id") == entry_id:
-                            if data.get("is_deleted", False):
-                                return None  # It's explicitly deleted
-                            return ClipItem.from_dict(data)
-                except (OSError, json.JSONDecodeError):
+                    with file_path.open("r", encoding="utf-8") as handle:
+                        # Since we now create one file per clip, most will have 1 line.
+                        # But we still handle multi-line just in case of overlaps or legacy.
+                        for line in handle:
+                            if not line.strip():
+                                continue
+                            data = json.loads(line)
+                            if data.get("entry_id") == entry_id:
+                                # Found it. Check if it's deleted.
+                                if data.get("is_deleted", False):
+                                    return None
+                                return ClipItem.from_dict(data)
+                except (json.JSONDecodeError, OSError) as exc:
+                    logger.warning("Error reading clip file %s: %s", file_path, exc)
                     continue
         return None
+
+    def _update_clip_timestamp_sync(self, entry_id: str, new_timestamp: datetime) -> None:
+        """Locate the most recent version of a clip and append a fresh copy with the new timestamp."""
+        existing = self._find_exact_clip_match_sync(entry_id)
+        if not existing:
+            return
+
+        from dataclasses import replace
+        updated = replace(existing, timestamp=new_timestamp)
+        # Force daily folder creation for the new timestamp
+        daily_dir = self.data_dir / new_timestamp.strftime("%Y-%m-%d")
+        clips_dir = daily_dir / AppConfig.CLIPPINGS_DIRNAME
+        clips_dir.mkdir(parents=True, exist_ok=True)
+        
+        clips_path = clips_dir / AppConfig.get_clip_filename(new_timestamp)
+        payload = json.dumps(updated.to_dict(), ensure_ascii=False)
+        self._append_text_line(clips_path, payload)
+        logger.info("Updated timestamp for %s by appending to %s", entry_id, clips_path)
 
     def _get_recent_clips_sync(self, limit: int, favorite_only: bool = False, tag: str | None = None) -> list[ClipItem]:
         """Return latest non-deleted clips mapped into objects."""
@@ -247,7 +279,7 @@ class FileStorageService(IStorageService):
         """Retrieve all versions for a given clip group, chronologically ordered."""
         versions: list[ClipItem] = []
         seen_ids: set[str] = set()
-        
+
         for daily_dir in self._iter_daily_dirs_desc():
             clips_dir = daily_dir / AppConfig.CLIPPINGS_DIRNAME
             if not clips_dir.exists():
@@ -272,7 +304,7 @@ class FileStorageService(IStorageService):
                             versions.append(ClipItem.from_dict(data))
                 except (OSError, json.JSONDecodeError):
                     continue
-        
+
         # Sort oldest first (chronological) for diffing
         versions.sort(key=lambda item: item.timestamp)
         return versions
@@ -348,16 +380,19 @@ class FileStorageService(IStorageService):
                             tombstone = ClipItem(
                                 entry_id=data.get("entry_id"),
                                 timestamp=datetime.now(),
-                                content=data.get("content"),
-                                clip_type=data.get("type"),
+                                content=data.get("content", ""),
+                                clip_type=data.get("clip_type") or data.get("type", "text"),
                                 format=data.get("format"),
                                 source_url=data.get("source_url"),
                                 file_path=Path(data["file_path"]) if data.get("file_path") else None,
                                 version_of=data.get("version_of"),
-                                is_deleted=True
+                                is_deleted=True,
+                                is_favorite=data.get("is_favorite", False),
+                                tags=data.get("tags", [])
                             )
                             payload = json.dumps(tombstone.to_dict(), ensure_ascii=False)
                             self._append_text_line(file_path, payload)
+                            logger.info("Deleted clip %s by appending tombstone to %s", entry_id, file_path)
                             return
                 except (OSError, json.JSONDecodeError):
                     continue
@@ -467,16 +502,20 @@ class FileStorageService(IStorageService):
                     line = raw_line.strip()
                     if not line:
                         continue
-                    clip = ClipItem.from_dict(json.loads(line))
-                    latest_timestamp = clip.timestamp
-                    display_value = clip.content.strip()
-                    if clip.clip_type == "image" and clip.file_path:
-                        display_value = clip.file_path.name
-                    line_preview = f"[{clip.clip_type}] {display_value}".strip()
-                    preview_lines.append(line_preview)
-                    latest_preview = line_preview
-        except (OSError, ValueError, json.JSONDecodeError) as exc:
-            logger.warning("Skipping invalid clip file %s during browse build: %s", file_path, exc)
+                    try:
+                        clip = ClipItem.from_dict(json.loads(line))
+                        latest_timestamp = clip.timestamp
+                        display_value = clip.content.strip()
+                        if clip.clip_type == "image" and clip.file_path:
+                            display_value = clip.file_path.name
+                        line_preview = display_value
+                        preview_lines.append(line_preview)
+                        latest_preview = line_preview
+                    except (json.JSONDecodeError, KeyError, ValueError) as exc:
+                        logger.warning("Skipping corrupted line in %s: %s", file_path, exc)
+                        continue
+        except OSError as exc:
+            logger.error("Failed to summarize clip file %s: %s", file_path, exc)
             return {
                 "preview": file_path.name,
                 "content": "Unable to read clip file.",
@@ -506,6 +545,7 @@ class FileStorageService(IStorageService):
                 handle.write(payload)
                 handle.write("\n")
         except OSError as exc:
+            logger.error("Failed to append clip payload to %s: %s", path, exc)
             raise StorageError(f"Unable to append clip to {path}.") from exc
 
     @staticmethod

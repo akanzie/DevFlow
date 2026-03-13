@@ -137,7 +137,7 @@ class UnifiedMainWindow(QWidget):
         self._current_items: list[SearchResult | BrowseEntry] = []
         self._selected_entry_id: str | None = None
         self._is_expanded = False
-        self._always_on_top = True
+        self._always_on_top = False
         self._drag_pos: Any = None
 
         self._search_timer = QTimer(self)
@@ -161,12 +161,17 @@ class UnifiedMainWindow(QWidget):
     # ------------------------------------------------------------------
 
     def show_compact(self) -> None:
-        """Show the window in compact (Spotlight bar) mode and focus search."""
+        """Show the window directly in expanded mode with recent items loaded."""
         self._center_on_primary_screen()
-        self._set_expanded(False, animate=False)
+        self._set_expanded(True, animate=False)
+        self._stack.setCurrentWidget(self._search_widget)
+        if not self._always_on_top:
+            self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
         self._show_window()
         self._search_bar.setFocus()
-        self._search_bar.selectAll()
+        self._search_bar.clear()
+        self._start_auto_refresh()
+        self._schedule_load("browse", immediate=True)
 
     def show_search_view(self) -> None:
         """Expand the window and show the search/browse view (legacy API)."""
@@ -244,9 +249,11 @@ class UnifiedMainWindow(QWidget):
         super().focusOutEvent(event)
 
     def _dismiss_if_unfocused(self) -> None:
-        """Hide only if no child widget holds focus."""
+        """Hide only if no child widget holds focus and window is not pinned."""
+        if self._always_on_top:
+            return
         if not self.isAncestorOf(QApplication.focusWidget() or self):  # type: ignore[arg-type]
-            pass  # Re-enable auto-dismiss here if desired in future
+            self.dismiss()
 
     def _setup_ui(self) -> None:
         """Initialize widgets and layout (compact bar + expandable panel)."""
@@ -302,7 +309,7 @@ class UnifiedMainWindow(QWidget):
         # Always-on-top pin button
         self._pin_btn = QPushButton("📌")
         self._pin_btn.setCheckable(True)
-        self._pin_btn.setChecked(True)
+        self._pin_btn.setChecked(False)
         self._pin_btn.setFixedSize(28, 28)
         self._pin_btn.setToolTip("Toggle always on top")
         self._pin_btn.setStyleSheet(
@@ -499,16 +506,99 @@ class UnifiedMainWindow(QWidget):
             self.refresh_items(silent=False)
 
     def delete_item(self, entry_id: str) -> None:
-        """Soft-delete a clip via tombstone and refresh the view."""
+        """Delete an item (tombstone for clips, disk delete for notes) and refresh."""
         try:
-            self._runtime.submit(self._storage_service.delete_clip(entry_id)).result(timeout=10)
-            logger.info("Deleted clip %s.", entry_id)
+            if entry_id.startswith("note:"):
+                # entry_id is 'note:path/to/YYYY-MM-DD.md'
+                date_str = os.path.splitext(os.path.basename(entry_id))[0]
+                self._runtime.submit(self._storage_service.delete_note(date_str)).result(timeout=10)
+                self._runtime.submit(self._search_service.update_metadata(date_str, is_deleted=True)).result(timeout=10)
+            elif entry_id.startswith("image:") or entry_id.startswith("clip_file:"):
+                 # Handle direct file deletion for browse mode files?
+                 # For now, let's just use the entry_id as a file path if it starts with image: or clip_file:
+                 file_path = entry_id.split(":", 1)[1]
+                 if os.path.exists(file_path):
+                     os.remove(file_path)
+                 # Also update index if possible. Many files in browse might not be in index by date.
+                 # But we can try to mark as deleted in DuckDB if entry_id exists there.
+                 self._runtime.submit(self._search_service.update_metadata(entry_id, is_deleted=True)).result(timeout=10)
+            else:
+                # Normal clip tombstone
+                self._runtime.submit(self._storage_service.delete_clip(entry_id)).result(timeout=10)
+                self._runtime.submit(self._search_service.update_metadata(entry_id, is_deleted=True)).result(timeout=10)
+
+            logger.info("Deleted item %s.", entry_id)
             self._search_widget._browser_status_label.setText("Item deleted.")
         except Exception:
-            logger.exception("Failed to delete clip %s.", entry_id)
+            logger.exception("Failed to delete item %s.", entry_id)
             self._search_widget._browser_status_label.setText("Delete failed — check logs.")
         finally:
             self.refresh_items(silent=False)
+
+    def update_clip_metadata(self, entry_id: str, new_favorite: bool | None = None, new_tags: list[str] | None = None) -> None:
+        """Update metadata (favorite/tags) for an item, handles clips via versioning and notes via index update."""
+        # Find the item data to determine type
+        item_to_update = None
+        for item in self._current_items:
+            if item.entry_id == entry_id:
+                item_to_update = item
+                break
+
+        if item_to_update is None:
+            return
+
+        is_note = False
+        note_id = entry_id
+        if entry_id.startswith("note:"):
+            is_note = True
+            note_id = os.path.splitext(os.path.basename(entry_id))[0]
+        elif isinstance(item_to_update, SearchResult) and item_to_update.entry_type == "note":
+            is_note = True
+            note_id = item_to_update.entry_id # The date
+
+        if is_note:
+            try:
+                self._runtime.submit(self._search_service.update_metadata(note_id, is_favorite=new_favorite, tags=new_tags)).result(timeout=10)
+                logger.info("Updated metadata for note %s in index.", note_id)
+                self._search_widget._browser_status_label.setText("Note metadata updated.")
+            except Exception:
+                logger.exception("Failed to update note metadata for %s.", entry_id)
+                self._search_widget._browser_status_label.setText("Update failed.")
+        else:
+            # Handle clips via versioning (existing logic)
+            from DailyClip.core.entities import ClipItem
+            fav = new_favorite if new_favorite is not None else getattr(item_to_update, "is_favorite", False)
+            tags = new_tags if new_tags is not None else getattr(item_to_update, "tags", [])
+
+            if (getattr(item_to_update, "entry_type", None) == "image" or
+                (isinstance(item_to_update, SearchResult) and getattr(item_to_update, "file_path", None) and self._is_image_path(item_to_update.file_path))):
+                new_clip = ClipItem.create_image(
+                    content=getattr(item_to_update, "content", ""),
+                    file_path=getattr(item_to_update, "file_path", None) or getattr(item_to_update, "path", None),
+                    timestamp=datetime.now(),
+                    version_of=entry_id
+                )
+            else:
+                new_clip = ClipItem.create_text(
+                    content=getattr(item_to_update, "content", ""),
+                    timestamp=datetime.now(),
+                    version_of=entry_id,
+                    source_url=getattr(item_to_update, "source_url", None)
+                )
+
+            object.__setattr__(new_clip, 'is_favorite', fav)
+            object.__setattr__(new_clip, 'tags', tags)
+
+            try:
+                self._runtime.submit(self._storage_service.append_clip(new_clip)).result(timeout=10)
+                self._runtime.submit(self._search_service.index_clip(new_clip)).result(timeout=10)
+                logger.info("Updated metadata for clip %s via new version.", entry_id)
+                self._search_widget._browser_status_label.setText("Clip metadata updated.")
+            except Exception:
+                logger.exception("Failed to update clip metadata for %s.", entry_id)
+                self._search_widget._browser_status_label.setText("Update failed.")
+
+        self.refresh_items(silent=True)
 
 
 
@@ -628,7 +718,14 @@ class UnifiedMainWindow(QWidget):
         if current is None:
             self._selected_entry_id = None
             self._search_widget._clear_preview()
+            self._search_widget._fav_button.setEnabled(False)
+            self._search_widget._delete_button.setEnabled(False)
+            self._search_widget._tag_button.setEnabled(False)
             return
+
+        self._search_widget._fav_button.setEnabled(True)
+        self._search_widget._delete_button.setEnabled(True)
+        self._search_widget._tag_button.setEnabled(True)
 
         item_data = current.data(Qt.ItemDataRole.UserRole)
         if isinstance(item_data, (SearchResult, BrowseEntry)):
@@ -724,14 +821,12 @@ class UnifiedMainWindow(QWidget):
     def _build_item_label(self, item_data: SearchResult | BrowseEntry) -> str:
         """Return a compact label for the list view."""
         if isinstance(item_data, SearchResult):
-            timestamp = item_data.timestamp.strftime("%Y-%m-%d %H:%M:%S")
-            return f"[{item_data.entry_type}] {timestamp} {item_data.preview}"
+            return item_data.preview
 
         if item_data.entry_type == "folder":
-            return f"[folder] {item_data.label} ({item_data.child_count} items)"
+            return f"{item_data.label} ({item_data.child_count})"
 
-        timestamp = self._format_timestamp(item_data.timestamp)
-        return f"[{item_data.entry_type}] {timestamp} {item_data.label}"
+        return item_data.label
 
     @staticmethod
     def _is_image_path(path: os.PathLike[str] | str) -> bool:
@@ -782,6 +877,13 @@ class SearchWidget(QWidget):
         layout.addWidget(splitter, 1)
 
         self._results_list = QListWidget(self)
+        # Tracking vertical scroll to defer thumbnail loading in grid mode
+        self._thumbnail_timer = QTimer(self)
+        self._thumbnail_timer.setSingleShot(True)
+        self._thumbnail_timer.setInterval(200)
+        self._thumbnail_timer.timeout.connect(self._load_visible_thumbnails)
+        self._results_list.verticalScrollBar().valueChanged.connect(lambda: self._thumbnail_timer.start() if self._results_list.viewMode() == QListWidget.ViewMode.IconMode else None)
+
         splitter.addWidget(self._results_list)
 
         preview_panel = QWidget(self)
@@ -826,18 +928,21 @@ class SearchWidget(QWidget):
         layout.addLayout(footer)
 
         self._fav_button = QPushButton("⭐", self)
-        self._fav_button.setToolTip("Favorite (not implemented)")
+        self._fav_button.setToolTip("Toggle Favorite")
         self._fav_button.setEnabled(False)
+        self._fav_button.clicked.connect(self._toggle_favorite)
         footer.addWidget(self._fav_button)
 
         self._delete_button = QPushButton("🗑️", self)
         self._delete_button.setToolTip("Delete item")
+        self._delete_button.setEnabled(False)
         self._delete_button.clicked.connect(self._delete_selected_item)
         footer.addWidget(self._delete_button)
 
         self._tag_button = QPushButton("✏️", self)
-        self._tag_button.setToolTip("Rename/Tag (not implemented)")
+        self._tag_button.setToolTip("Rename/Tag")
         self._tag_button.setEnabled(False)
+        self._tag_button.clicked.connect(self._edit_tags)
         footer.addWidget(self._tag_button)
 
         self._save_edit_button = QPushButton("💾", self)
@@ -890,15 +995,42 @@ class SearchWidget(QWidget):
         # else already editing
 
     def _save_edit(self) -> None:
-        """Save edited text as a new version."""
+        """Save edited text to disk (note) or as a new version (clip)."""
         if not self._editing_entry_id:
             return
         new_content = self._preview_text.toPlainText()
-        # Call parent window to create new version
+
         main_window = self.window()
-        if isinstance(main_window, UnifiedMainWindow):
+        if not isinstance(main_window, UnifiedMainWindow):
+            return
+
+        # Identify if it's a note
+        is_note = False
+        note_date = None
+
+        # Check if we have a BrowseEntry for a note
+        current_item = self._results_list.currentItem()
+        if current_item:
+            item_data = current_item.data(Qt.ItemDataRole.UserRole)
+            if isinstance(item_data, BrowseEntry) and item_data.entry_type == "note":
+                is_note = True
+                # entry_id is 'note:path/to/2026-03-13.md'
+                note_date = os.path.splitext(os.path.basename(str(item_data.path)))[0]
+            elif isinstance(item_data, SearchResult) and item_data.entry_type == "note":
+                is_note = True
+                note_date = item_data.entry_id # For notes in index, entry_id is the date
+
+        if is_note and note_date:
+            from DailyClip.core.entities import DailyNote
+            updated_note = DailyNote(date=note_date, content=new_content)
+            main_window._runtime.submit(main_window._storage_service.save_note(updated_note)).result(timeout=10)
+            main_window._runtime.submit(main_window._search_service.index_note(updated_note)).result(timeout=10)
+            self._browser_status_label.setText(f"Note {note_date} updated.")
+            main_window.refresh_items(silent=True)
+        else:
+            # Fallback to clip versioning
             main_window.create_new_version(self._editing_entry_id, new_content)
-        # Exit edit mode
+
         self._exit_edit_mode()
 
     def _exit_edit_mode(self) -> None:
@@ -909,6 +1041,7 @@ class SearchWidget(QWidget):
         self._diff_button.setVisible(False)
         self._fav_button.setEnabled(True)
         self._delete_button.setEnabled(True)
+        self._tag_button.setEnabled(True)
 
     def _show_diff(self) -> None:
         """Display unified diff between original and edited content."""
@@ -961,32 +1094,105 @@ class SearchWidget(QWidget):
         if checked:
             self._results_list.setViewMode(QListWidget.ViewMode.IconMode)
             self._results_list.setIconSize(QSize(120, 90))
-            self._results_list.setGridSize(QSize(140, 120))
+            self._results_list.setGridSize(QSize(140, 140))
+            self._results_list.setWordWrap(True)
             self._gallery_button.setText("📋 List")
             # Repopulate with thumbnails for images
             self._refresh_thumbnails()
         else:
             self._results_list.setViewMode(QListWidget.ViewMode.ListMode)
+            self._results_list.setGridSize(QSize())
+            self._results_list.setWordWrap(False)
             self._gallery_button.setText("🖼️ Grid")
             # Reload without thumbnails (refresh from parent)
             main_window = self.window()
             if isinstance(main_window, UnifiedMainWindow):
                 main_window.refresh_items(silent=True)
 
+    def _toggle_favorite(self) -> None:
+        """Toggle favorite status of the currently selected item."""
+        current_item = self._results_list.currentItem()
+        if not current_item:
+            return
+        item_data = current_item.data(Qt.ItemDataRole.UserRole)
+        if not isinstance(item_data, (SearchResult, BrowseEntry)):
+            return
+
+        if isinstance(item_data, BrowseEntry) and item_data.entry_type == "folder":
+            self._browser_status_label.setText("Cannot favorite folders.")
+            return
+
+    def _edit_tags(self) -> None:
+        """Prompt user for tags separated by comma."""
+        current_item = self._results_list.currentItem()
+        if not current_item:
+            return
+        item_data = current_item.data(Qt.ItemDataRole.UserRole)
+        if not isinstance(item_data, (SearchResult, BrowseEntry)):
+            return
+
+        if isinstance(item_data, BrowseEntry) and item_data.entry_type == "folder":
+            self._browser_status_label.setText("Cannot tag folders.")
+            return
+
+        from PyQt6.QtWidgets import QInputDialog
+        current_tags = getattr(item_data, "tags", [])
+        current_tags_str = ", ".join(current_tags) if current_tags else ""
+        text, ok = QInputDialog.getText(
+            self, "Edit Tags",
+            "Enter tags (comma separated):",
+            QLineEdit.EchoMode.Normal,
+            current_tags_str
+        )
+        if ok:
+            tags = [t.strip() for t in text.split(",") if t.strip()]
+            main_window = self.window()
+            if isinstance(main_window, UnifiedMainWindow):
+                main_window.update_clip_metadata(item_data.entry_id, new_tags=tags)
+
     def _refresh_thumbnails(self) -> None:
-        """Replace items with thumbnail icons for images."""
-        # For simplicity, we just reload the same items but add icons for images.
-        # This is a placeholder; a real implementation would generate thumbnails.
+        """Replace items with placeholder icons and schedule thumbnail generation."""
         for i in range(self._results_list.count()):
             item = self._results_list.item(i)
-            item_data = item.data(Qt.ItemDataRole.UserRole)
-            if isinstance(item_data, BrowseEntry) and item_data.entry_type == "image":
-                pixmap = QPixmap(str(item_data.path)).scaled(
-                    100, 70, Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation)
-                item.setIcon(QIcon(pixmap))
-            else:
-                item.setIcon(QIcon())  # no icon for non-images
+            item.setIcon(QIcon())
+            item.setData(Qt.ItemDataRole.UserRole + 1, False) # loaded flag
+
+        # Start timer immediately
+        self._thumbnail_timer.start(50)
+
+    def _load_visible_thumbnails(self) -> None:
+        """Load thumbnails only for items currently visible in the viewport."""
+        if self._results_list.viewMode() != QListWidget.ViewMode.IconMode:
+            return
+
+        viewport = self._results_list.viewport()
+        visible_rect = viewport.rect()
+
+        for i in range(self._results_list.count()):
+            item = self._results_list.item(i)
+            # Check if already loaded
+            if item.data(Qt.ItemDataRole.UserRole + 1):
+                continue
+
+            rect = self._results_list.visualItemRect(item)
+            if visible_rect.intersects(rect):
+                item_data = item.data(Qt.ItemDataRole.UserRole)
+                image_path = None
+
+                if isinstance(item_data, BrowseEntry) and item_data.entry_type == "image":
+                    image_path = item_data.path
+                elif isinstance(item_data, SearchResult) and getattr(item_data, "file_path", None) and UnifiedMainWindow._is_image_path(item_data.file_path):
+                    image_path = item_data.file_path
+
+                if image_path:
+                    pixmap = QPixmap(str(image_path)).scaled(
+                        100, 70, Qt.AspectRatioMode.KeepAspectRatio,
+                        Qt.TransformationMode.SmoothTransformation)
+                    item.setIcon(QIcon(pixmap))
+                else:
+                    item.setIcon(QIcon())
+
+                item.setData(Qt.ItemDataRole.UserRole + 1, True)
 
     # Override mouse release to handle edit exit when selection changes
     def mouseReleaseEvent(self, event: Any) -> None:
@@ -1009,6 +1215,18 @@ class SearchWidget(QWidget):
             f"Timestamp: {self._format_timestamp(result.timestamp)}",
             f"Score: {result.score:.2f}",
         ]
+
+        is_fav = getattr(result, "is_favorite", False)
+        if is_fav:
+            metadata.insert(0, "⭐ FAVORITE")
+            self._fav_button.setText("★ Unfav")
+        else:
+            self._fav_button.setText("⭐ Fav")
+
+        tags = getattr(result, "tags", [])
+        if tags:
+            metadata.append(f"Tags: {', '.join(tags)}")
+
         if result.file_path:
             metadata.append(f"Path: {result.file_path}")
         if result.source_url:
@@ -1024,8 +1242,24 @@ class SearchWidget(QWidget):
         metadata = [f"Type: {entry.entry_type}", f"Path: {entry.path}"]
         if entry.timestamp is not None:
             metadata.append(f"Timestamp: {self._format_timestamp(entry.timestamp)}")
+
         if entry.entry_type == "folder":
             metadata.append(f"Items: {entry.child_count}")
+            self._fav_button.setEnabled(False)
+            self._delete_button.setEnabled(False)
+            self._tag_button.setEnabled(False)
+        else:
+            self._fav_button.setEnabled(True)
+            self._delete_button.setEnabled(True)
+            self._tag_button.setEnabled(True)
+
+        # Update Favorite button text
+        is_fav = getattr(entry, "is_favorite", False)
+        if is_fav:
+            metadata.insert(0, "⭐ FAVORITE")
+            self._fav_button.setText("★ Unfav")
+        else:
+            self._fav_button.setText("⭐ Fav")
 
         if entry.entry_type == "image":
             self._set_image_preview(entry.path, metadata)
@@ -1037,7 +1271,9 @@ class SearchWidget(QWidget):
     def _set_text_preview(self, text: str, metadata: list[str]) -> None:
         """Show textual content in the preview pane."""
         self._current_image_pixmap = None
+        self._preview_text.blockSignals(True)
         self._preview_text.setPlainText(text)
+        self._preview_text.blockSignals(False)
         self._editing_entry_id = None          # lock for auto-refresh
         self._original_content = ""                    # for diff
         self._preview_meta.setText("\n".join(metadata))
@@ -1072,7 +1308,9 @@ class SearchWidget(QWidget):
     def _clear_preview(self, message: str = "Select an item to preview.") -> None:
         """Reset the preview pane to a neutral state."""
         self._current_image_pixmap = None
+        self._preview_text.blockSignals(True)
         self._preview_text.setPlainText(message)
+        self._preview_text.blockSignals(False)
         self._preview_meta.setText("")
         self._preview_stack.setCurrentWidget(self._preview_text)
         self._image_label.setText("No image selected")

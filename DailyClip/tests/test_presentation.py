@@ -30,6 +30,10 @@ class DummySearchService:
                 preview="example result",
                 file_path=None,
                 source_url=None,
+                version_of=None,
+                is_deleted=False,
+                is_favorite=False,
+                tags=[],
                 score=1.0,
             )
         ]
@@ -110,6 +114,10 @@ def test_workspace_renders_completed_search_results(qapp):
                 preview="example result",
                 file_path=None,
                 source_url=None,
+                version_of=None,
+                is_deleted=False,
+                is_favorite=False,
+                tags=[],
                 score=1.0,
             )
         ],

@@ -47,6 +47,9 @@ class IStorageService(Protocol):
     async def get_recent_clips(self, limit: int = 50, favorite_only: bool = False, tag: str | None = None) -> list[ClipItem]:
         """Return recent text clips for versioning sequence matching."""
 
+    async def update_clip_timestamp(self, entry_id: str, new_timestamp: datetime) -> None:
+        """Update the last-seen timestamp of an existing clip."""
+
     async def get_all_versions(self, version_group_id: str) -> list[ClipItem]:
         """Return all valid versions of a clip group (for diffing)."""
 
@@ -58,6 +61,9 @@ class IStorageService(Protocol):
 
     async def delete_clip(self, entry_id: str) -> None:
         """Write a tombstone entity deleting a clip."""
+
+    async def delete_note(self, date_str: str) -> None:
+        """Delete a daily note from disk."""
 
 
 class ISearchService(Protocol):
@@ -80,6 +86,9 @@ class ISearchService(Protocol):
 
     async def index_notes(self, notes: list[DailyNote]) -> None:
         """Index multiple notes incrementally."""
+
+    async def update_metadata(self, entry_id: str, is_favorite: bool | None = None, tags: list[str] | None = None, is_deleted: bool | None = None) -> None:
+        """Update metadata for an indexed entry."""
 
     def close(self) -> None:
         """Close connection to backend index storage."""

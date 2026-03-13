@@ -57,7 +57,7 @@ class AppConfig:
     @staticmethod
     def get_clip_filename(timestamp: datetime) -> str:
         """Build the clip filename for a given timestamp."""
-        return f"{AppConfig.CLIP_FILE_PREFIX}{timestamp:%H-%M-%S}.jsonl"
+        return f"{AppConfig.CLIP_FILE_PREFIX}{timestamp:%H-%M-%S-%f}.jsonl"
 
     @staticmethod
     def get_screenshot_filename(timestamp: datetime) -> str:

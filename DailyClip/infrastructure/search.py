@@ -29,7 +29,7 @@ class DuckDBSearchService(ISearchService):
         self.db_path = self.storage_path / AppConfig.INDEX_FILENAME
         self._lock = threading.Lock()
         self._conn = None
-        
+
     def _get_connection(self) -> duckdb.DuckDBPyConnection:
         """Lazily load the duckdb connection."""
         if self._conn is None:
@@ -82,17 +82,21 @@ class DuckDBSearchService(ISearchService):
             return
         await asyncio.to_thread(self._upsert_notes_sync, notes)
 
+    async def update_metadata(self, entry_id: str, is_favorite: bool | None = None, tags: list[str] | None = None, is_deleted: bool | None = None) -> None:
+        """Update metadata for an indexed entry."""
+        await asyncio.to_thread(self._update_metadata_sync, entry_id, is_favorite, tags, is_deleted)
+
     def _initialize_database(self) -> None:
         """Ensure the database schema exists."""
         self.storage_path.mkdir(parents=True, exist_ok=True)
         lock_path = self.db_path.with_suffix(".lock")
-        
+
         with FileLock(lock_path):
             self._conn = duckdb.connect(str(self.db_path))
-            
+
             self._conn.execute("INSTALL fts;")
             self._conn.execute("LOAD fts;")
-            
+
             self._conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS search_entries (
@@ -106,19 +110,12 @@ class DuckDBSearchService(ISearchService):
                     source_url VARCHAR,
                     score DOUBLE DEFAULT 1.0,
                     version_of VARCHAR,
-                    is_deleted BOOLEAN DEFAULT FALSE
+                    is_deleted BOOLEAN DEFAULT FALSE,
+                    is_favorite BOOLEAN DEFAULT FALSE,
+                    tags VARCHAR
                 )
                 """
             )
-            try:
-                self._conn.execute("ALTER TABLE search_entries ADD COLUMN version_of VARCHAR")
-            except duckdb.Error:
-                pass
-
-            try:
-                self._conn.execute("ALTER TABLE search_entries ADD COLUMN is_deleted BOOLEAN DEFAULT FALSE")
-            except duckdb.Error:
-                pass
             self._conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_search_entries_timestamp "
                 "ON search_entries(timestamp)"
@@ -127,7 +124,7 @@ class DuckDBSearchService(ISearchService):
                 "CREATE INDEX IF NOT EXISTS idx_search_entries_date "
                 "ON search_entries(date_str)"
             )
-            
+
             self._conn.execute(
                 "PRAGMA create_fts_index('search_entries', 'entry_id', 'content', 'preview', overwrite=1)"
             )
@@ -158,7 +155,7 @@ class DuckDBSearchService(ISearchService):
                 )
                 if note_path.exists():
                     self._index_note_file(cursor, note_path, daily_dir.name)
-                    
+
             cursor.execute(
                 "PRAGMA create_fts_index('search_entries', 'entry_id', 'content', 'preview')"
             )
@@ -182,6 +179,8 @@ class DuckDBSearchService(ISearchService):
                         source_url,
                         version_of,
                         is_deleted,
+                        is_favorite,
+                        tags,
                         fts_main_search_entries.match_bm25(entry_id, ?) AS score
                     FROM search_entries
                     WHERE score IS NOT NULL AND is_deleted = FALSE
@@ -203,7 +202,11 @@ class DuckDBSearchService(ISearchService):
                 preview=row[4],
                 file_path=Path(row[5]) if row[5] else None,
                 source_url=row[6],
-                score=float(row[9] or 1.0),
+                version_of=row[7],
+                is_deleted=bool(row[8]),
+                is_favorite=bool(row[9]),
+                tags=[t.strip() for t in row[10].split(',')] if row[10] else [],
+                score=float(row[11] or 1.0),
             )
             for row in rows
         ]
@@ -218,33 +221,33 @@ class DuckDBSearchService(ISearchService):
         for clip in clips:
             if not clip.content.strip():
                 continue
-            entry_id = self._build_clip_entry_id(clip)
-            preview = self._build_preview(clip.content)
+            preview_with_tags = self._build_preview(clip.content)
+            if clip.tags:
+                preview_with_tags += f" [{' '.join(clip.tags)}]"
+
             records.append((
-                entry_id,
+                clip.entry_id,
                 "clip",
                 clip.timestamp,
                 clip.timestamp.strftime("%Y-%m-%d"),
                 clip.content,
-                preview,
+                preview_with_tags,
                 str(clip.file_path) if clip.file_path else None,
                 clip.source_url,
                 1.0,
                 clip.version_of,
                 clip.is_deleted,
+                clip.is_favorite,
+                ",".join(clip.tags) if clip.tags else None,
             ))
-            
+
         if not records:
             return
-            
+
         with self._lock:
             try:
                 conn = self._get_connection()
                 cursor = conn.cursor()
-                try:
-                    cursor.execute("PRAGMA drop_fts_index('search_entries')")
-                except duckdb.Error:
-                    pass
                 cursor.executemany(
                     """
                     INSERT OR REPLACE INTO search_entries (
@@ -258,16 +261,16 @@ class DuckDBSearchService(ISearchService):
                         source_url,
                         score,
                         version_of,
-                        is_deleted
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        is_deleted,
+                        is_favorite,
+                        tags
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     records,
                 )
-                cursor.execute(
-                    "PRAGMA create_fts_index('search_entries', 'entry_id', 'content', 'preview')"
-                )
                 cursor.close()
             except duckdb.Error as exc:
+                logger.error("DuckDB error during clip upsert: %s", exc)
                 raise SearchIndexError("Failed to insert clip entries.") from exc
 
     def _upsert_note_sync(self, note: DailyNote) -> None:
@@ -298,8 +301,10 @@ class DuckDBSearchService(ISearchService):
                 1.0,
                 None,
                 False,
+                False,
+                None,
             ))
-            
+
         if not records:
             return
 
@@ -307,10 +312,6 @@ class DuckDBSearchService(ISearchService):
             try:
                 conn = self._get_connection()
                 cursor = conn.cursor()
-                try:
-                    cursor.execute("PRAGMA drop_fts_index('search_entries')")
-                except duckdb.Error:
-                    pass
                 cursor.executemany(
                     """
                     INSERT OR REPLACE INTO search_entries (
@@ -324,16 +325,16 @@ class DuckDBSearchService(ISearchService):
                         source_url,
                         score,
                         version_of,
-                        is_deleted
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        is_deleted,
+                        is_favorite,
+                        tags
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     records,
                 )
-                cursor.execute(
-                    "PRAGMA create_fts_index('search_entries', 'entry_id', 'content', 'preview')"
-                )
                 cursor.close()
             except duckdb.Error as exc:
+                logger.error("DuckDB error during note indexing: %s", exc)
                 raise SearchIndexError("Failed to index note entries.") from exc
 
     def _index_clip_file(self, cursor: duckdb.DuckDBPyConnection, clip_file: Path) -> None:
@@ -341,7 +342,7 @@ class DuckDBSearchService(ISearchService):
         try:
             records = []
             chunk_size = 500
-            
+
             with clip_file.open("r", encoding="utf-8") as handle:
                 for raw_line in handle:
                     line = raw_line.strip()
@@ -351,21 +352,27 @@ class DuckDBSearchService(ISearchService):
                     if not clip.content.strip():
                         continue
                     persisted_path = clip.file_path or clip_file
-                    
+
+                    preview_with_tags = self._build_preview(clip.content)
+                    if clip.tags:
+                        preview_with_tags += f" [{' '.join(clip.tags)}]"
+
                     records.append((
-                        self._build_clip_entry_id(clip),
+                        clip.entry_id,
                         "clip",
                         clip.timestamp,
                         clip.timestamp.strftime("%Y-%m-%d"),
                         clip.content,
-                        self._build_preview(clip.content),
+                        preview_with_tags,
                         str(persisted_path),
                         clip.source_url,
                         1.0,
                         clip.version_of,
                         clip.is_deleted,
+                        clip.is_favorite,
+                        ",".join(clip.tags) if clip.tags else None,
                     ))
-                    
+
                     if len(records) >= chunk_size:
                         cursor.executemany(
                             """
@@ -380,13 +387,15 @@ class DuckDBSearchService(ISearchService):
                                 source_url,
                                 score,
                                 version_of,
-                                is_deleted
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                is_deleted,
+                                is_favorite,
+                                tags
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             """,
                             records,
                         )
                         records.clear()
-                        
+
             if records:
                 cursor.executemany(
                     """
@@ -401,8 +410,10 @@ class DuckDBSearchService(ISearchService):
                         source_url,
                         score,
                         version_of,
-                        is_deleted
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        is_deleted,
+                        is_favorite,
+                        tags
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     records,
                 )
@@ -435,8 +446,10 @@ class DuckDBSearchService(ISearchService):
                     source_url,
                     score,
                     version_of,
-                    is_deleted
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    is_deleted,
+                    is_favorite,
+                    tags
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     f"note:{date_str}",
@@ -450,6 +463,8 @@ class DuckDBSearchService(ISearchService):
                     1.0,
                     None,
                     False,
+                    False,
+                    None,
                 ],
             )
         except (OSError, duckdb.Error) as exc:
@@ -463,6 +478,42 @@ class DuckDBSearchService(ISearchService):
             return normalized
         return f"{normalized[:limit].rstrip()}..."
 
+    def _update_metadata_sync(self, entry_id: str, is_favorite: bool | None, tags: list[str] | None, is_deleted: bool | None) -> None:
+        """Synchronously update metadata in DuckDB."""
+        if not self._conn:
+            return
+        updates = []
+        params = []
+        if is_favorite is not None:
+            updates.append("is_favorite = ?")
+            params.append(is_favorite)
+        if tags is not None:
+            updates.append("tags = ?")
+            params.append(json.dumps(tags) if tags else None)
+        if is_deleted is not None:
+            updates.append("is_deleted = ?")
+            params.append(is_deleted)
+        
+        if not updates:
+            return
+
+        sql = f"UPDATE search_entries SET {', '.join(updates)} WHERE entry_id = ?"
+        params.append(entry_id)
+        
+        self._conn.execute(sql, params)
+        logger.debug("DuckDB: Updated metadata for %s", entry_id)
+
+        with self._lock:
+            try:
+                conn = self._get_connection()
+                cursor = conn.cursor()
+                cursor.execute(sql, params)
+                cursor.close()
+                logger.debug("Updated metadata for %s in index.", entry_id)
+            except duckdb.Error as exc:
+                logger.error("Failed to update metadata in DuckDB: %s", exc)
+                raise SearchIndexError("Failed to update metadata in index.") from exc
+
     @staticmethod
     def _is_date_folder(name: str) -> bool:
         """Return whether a folder name matches YYYY-MM-DD."""
@@ -471,14 +522,3 @@ class DuckDBSearchService(ISearchService):
         except ValueError:
             return False
         return True
-
-    @staticmethod
-    def _build_clip_entry_id(clip: ClipItem) -> str:
-        """Build a stable entry identifier for a clip."""
-        normalized_content = "\n".join(
-            line.rstrip() for line in clip.content.splitlines()
-        ).strip()
-        digest = hashlib.sha1(
-            f"{clip.timestamp.isoformat()}:{normalized_content}".encode("utf-8")
-        ).hexdigest()
-        return f"clip:{digest}"
